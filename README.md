@@ -2,6 +2,18 @@
 
 Windows 离线工具，使用 jieba.NET 从用户选定目录的文件名和相对文件夹名归纳高频关键词，交给本机现有 Everything 查看文件。
 
+## 界面预览
+
+以下为真实程序界面，全部使用虚构的示例资料库与样本索引；目录、关键词、文件数量和资料组数量均为演示数据。
+
+关键词排行支持紧凑排列、逐页加载、排序、字数与文件格式筛选；点击词组旁的 × 可直接屏蔽。
+
+![关键词面板：关键词排行、排序与筛选](docs/images/keyword-panel-demo.png)
+
+多个资料库可以独立保存索引和偏好，设置可导入、导出；分享时默认不包含本机路径。
+
+![资料库与设置：多个示例资料库及设置导入导出](docs/images/library-settings-demo.png)
+
 ## 使用
 
 1. 解压完整发布包，双击 `KeywordViewer.exe`，或使用桌面“高频关键词面板”快捷方式。
@@ -68,3 +80,4 @@ dotnet publish src/KeywordViewer/KeywordViewer.csproj -c Release -r win-x64 --se
 发布包不包含测试样本、扫描报告、原有 Everything 配置快照及用户索引。
 
 源码采用 [MIT](LICENSE)。开发流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，2.0 需求见 [docs/SPEC.md](docs/SPEC.md)。GitHub Actions 在 Windows 运行样本测试和发布内容检查；Release 提供自包含压缩包及 SHA256。
+
