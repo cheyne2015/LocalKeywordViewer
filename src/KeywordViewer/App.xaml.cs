@@ -6,6 +6,8 @@ using KeywordViewer.Core;
 namespace KeywordViewer;
 public partial class App : Application
 {
+    private SingleInstanceGuard? instance;
+    protected override void OnExit(ExitEventArgs e) { instance?.Dispose(); base.OnExit(e); }
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -33,6 +35,13 @@ public partial class App : Application
             catch (Exception ex) { File.WriteAllText(report, JsonSerializer.Serialize(new { Error = ex.Message })); Shutdown(1); }
             return;
         }
+        instance = new SingleInstanceGuard(store.BaseDirectory, () => Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (MainWindow is null) return;
+            if (MainWindow.WindowState == WindowState.Minimized) MainWindow.WindowState = WindowState.Normal;
+            MainWindow.Show(); MainWindow.Activate();
+        })));
+        if (!instance.IsFirst) { Shutdown(); return; }
         var window = new MainWindow(store, Argument("--root"));
         MainWindow = window;
         window.Show();

@@ -49,6 +49,16 @@ var noise = tokenizerFixture.Extract("2026年10月12日 www.example.com 389929.x
 Assert(noise.Count == 0, "Date/url/hash/extension noise");
 Assert(tokenizerFixture.Extract("OpenAI_Research 报告.mp4", true).Contains("openai_research"), "English name preservation"); passed.Add("Chinese segmentation, English names and noise suppression");
 var fixtureEngine = new SearchEngine(indexFixture);
+var formatOptions = FileFormats.Options(indexFixture);
+Assert(!formatOptions.Any(o => o.Key == "video") && formatOptions.Any(o => o.Key == "image"), "Formats list only actual categories");
+var textFormat = formatOptions.Single(o => o.Key == "ext:.txt");
+var textIndex = FileFormats.Select(indexFixture, textFormat, default);
+Assert(textIndex.Files.Count == 6 && textIndex.GroupCount == 4 && textIndex.Keywords.Single(k => k.Word == "北京").Groups == 3, "Format statistics deduplicate only matching files by group");
+Assert(FileFormats.Select(indexFixture, formatOptions.Single(o => o.Key == "image"), default).Keywords.All(k => k.Word != "北京"), "Image keyword below two groups is excluded");
+Assert(FileFormats.EverythingClause(textFormat) == " ext:txt", "Everything extension clause agrees with local format");
+var oldIndex = indexFixture with { Files = indexFixture.Files.Select(f => f with { Keywords = null }).ToList() };
+Assert(FileFormats.EnsureKeywords(oldIndex, resources, default).Files.Zip(indexFixture.Files).All(pair => pair.First.Keywords!.ToHashSet().SetEquals(pair.Second.Keywords!)), "Legacy name cache upgrades without reading content");
+passed.Add("format availability, group statistics, Everything clause and legacy cache upgrade");
 var beijing = fixtureEngine.Search(new("", ["北京"], "", FileSort.Name, false, 1));
 Assert(beijing.Total == 6, "Inherited directory matches");
 Assert(fixtureEngine.Search(new("", ["北京", "旅行"], ".txt", FileSort.Size, true, 1)).Total == 4, "Multi-keyword AND plus type");
@@ -99,6 +109,34 @@ Assert(EverythingBridge.BuildQuery(fixture, ["北京", "旅行"]).Contains("path
 Expect<ArgumentException>(() => EverythingBridge.BuildQuery(fixture, ["x|file:"]));
 Expect<FileNotFoundException>(() => EverythingBridge.StartInfo(Path.Combine(fixture, "missing.exe"), "test")); passed.Add("safe Everything expression and missing executable");
 var result = new { Passed = true, Checks = passed, Fixture = fixture, UiData = testStore.BaseDirectory };
+var catalogStore = new ViewerStore(Path.Combine(verification, "catalog-" + Guid.NewGuid().ToString("N")));
+prefs.Root = fixture; prefs.EverythingPath = Path.Combine(fixture, "example.exe"); catalogStore.SavePreferences(prefs); catalogStore.SaveIndex(indexFixture);
+var legacyPreferences = File.ReadAllBytes(Path.Combine(catalogStore.BaseDirectory, "preferences.json"));
+var manager = new LibraryManager(catalogStore);
+Assert(manager.StoreFor(manager.Active).LoadIndex(fixture)!.Files.Count == 10, "Migration retains original index");
+var originalProfile = manager.Active;
+var secondRoot = Path.Combine(fixture, "second-library"); Directory.CreateDirectory(secondRoot); File.WriteAllText(Path.Combine(secondRoot, "original.txt"), "preserve");
+var second = manager.Add("第二资料库", secondRoot); manager.Activate(second.Id);
+var independentPreferences = manager.StoreFor(second).LoadPreferences(); independentPreferences.Ignored.Add("独立屏蔽"); manager.StoreFor(second).SavePreferences(independentPreferences);
+Assert(!manager.StoreFor(originalProfile).LoadPreferences().Ignored.Contains("独立屏蔽"), "Library preferences isolated");
+Assert(new LibraryManager(catalogStore).Active.Id == second.Id, "Last library remembered");
+manager.Update(second.Id, "已改名", secondRoot); Assert(manager.Active.Name == "已改名", "Rename updates profile");
+var settingsFile = Path.Combine(verification, "settings-export-" + Guid.NewGuid().ToString("N") + ".json"); manager.Export(settingsFile, false);
+Assert(!File.ReadAllText(settingsFile).Contains(fixture.Replace("\\", "\\\\"), StringComparison.OrdinalIgnoreCase) && !File.ReadAllText(settingsFile).Contains("example.exe"), "Shareable settings omit root and executable paths");
+manager.Update(originalProfile.Id, new string('库', 100), originalProfile.Root); manager.Export(settingsFile, false);
+var beforeImport = manager.Catalog.Libraries.Count; manager.Import(settingsFile); Assert(manager.Catalog.Libraries.Count == beforeImport * 2 && manager.Catalog.Libraries.Skip(beforeImport).All(p => p.Root.Length == 0), "Import adds isolated profiles requiring path assignment");
+Assert(manager.Catalog.Libraries.Any(p => p.Id != originalProfile.Id && p.Name.Length == 100), "Maximum length library name round-trips through export/import");
+manager.Remove(second.Id); Assert(File.Exists(Path.Combine(secondRoot, "original.txt")), "Remove library never touches source files");
+Assert(File.ReadAllBytes(Path.Combine(catalogStore.BaseDirectory, "preferences.json")).SequenceEqual(legacyPreferences), "Migration preserves old preferences backup");
+passed.Add("library migration, isolation, switching, rename, safe removal and path-free export/import");
+using (var awakened = new ManualResetEventSlim())
+using (var firstInstance = new SingleInstanceGuard(catalogStore.BaseDirectory, () => awakened.Set()))
+{
+    Assert(firstInstance.IsFirst, "First instance acquires guard"); bool duplicate = false;
+    var otherThread = new Thread(() => { using var next = new SingleInstanceGuard(catalogStore.BaseDirectory, () => { }); duplicate = !next.IsFirst; });
+    otherThread.Start(); otherThread.Join(); Assert(duplicate && awakened.Wait(2000), "Second instance signals activation instead of acquiring guard");
+}
+passed.Add("single instance and activation notification");
 File.WriteAllText(Path.Combine(verification, "checks.json"), JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true }));
 Console.WriteLine(JsonSerializer.Serialize(result));
 void Write(string relative, string contents) { var path = Path.Combine(fixture, relative.Replace('/', Path.DirectorySeparatorChar)); Directory.CreateDirectory(Path.GetDirectoryName(path)!); File.WriteAllText(path, contents); }

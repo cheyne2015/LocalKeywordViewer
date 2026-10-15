@@ -10,10 +10,18 @@ using KeywordViewer.Core;
 namespace KeywordViewer;
 public partial class MainWindow : Window
 {
-    private readonly ViewerStore store;
+    private ViewerStore store;
+    private readonly ViewerStore baseStore;
+    private readonly LibraryManager libraries;
     private ViewerPreferences preferences;
     private readonly HashSet<string> selected = new(StringComparer.OrdinalIgnoreCase);
     private FileIndex? index;
+    private FileIndex? fullIndex;
+    private FileFormatOption format = new("all", "全部格式", []);
+    private CancellationTokenSource? formatCancellation;
+    private int formatVersion;
+    private bool configuringFormat, switchingLibrary;
+    private Task? activeScan;
     private SearchEngine? engine;
     private EverythingInfo? everything;
     private CancellationTokenSource? scanCancellation, matchCancellation;
@@ -31,9 +39,12 @@ public partial class MainWindow : Window
     private bool updatingLengthOptions;
     public MainWindow(ViewerStore store, string? root)
     {
-        this.store = store;
-        try { preferences = store.LoadPreferences(); } catch (Exception ex) { preferences = new(); SafeLog("Preferences load failed: " + ex.Message); }
+        baseStore = store;
+        libraries = new LibraryManager(baseStore, root);
+        this.store = libraries.StoreFor(libraries.Active);
+        preferences = this.store.LoadPreferences();
         InitializeComponent();
+        VersionText.Text = $"v{typeof(App).Assembly.GetName().Version?.ToString(3)} · Ctrl 点击多选 · 离线名称索引";
         Width = double.IsFinite(preferences.WindowWidth) ? Math.Clamp(preferences.WindowWidth, MinWidth, Math.Max(MinWidth, SystemParameters.WorkArea.Width)) : 780;
         Height = double.IsFinite(preferences.WindowHeight) ? Math.Clamp(preferences.WindowHeight, MinHeight, Math.Max(MinHeight, SystemParameters.WorkArea.Height)) : 900;
         SortField.SelectedIndex = Math.Clamp((int)preferences.KeywordOrder, 0, 2);
@@ -41,7 +52,8 @@ public partial class MainWindow : Window
         LengthFilter.DisplayMemberPath = "Label"; LengthFilter.SelectedValuePath = "Value";
         LengthFilter.ItemsSource = new[] { new LengthOption(0, "全部字数") }; LengthFilter.SelectedIndex = 0;
         InfiniteKeywordList.ItemsSource = keywordBatches;
-        RootBox.Text = root ?? preferences.Root;
+        RootBox.Text = libraries.Active.Root;
+        SyncLibraryBox();
         keywordTimer.Tick += (_, _) => { keywordTimer.Stop(); PopulateKeywords(); };
         matchTimer.Tick += async (_, _) => { matchTimer.Stop(); await UpdateMatchesAsync(); };
     }
@@ -50,34 +62,26 @@ public partial class MainWindow : Window
         everything = EverythingBridge.Discover(preferences.EverythingPath);
         UpdateEverythingStatus();
         ready = true;
-        RefreshButton.IsEnabled = false;
-        try
-        {
-            StatusText.Text = "正在加载本地缓存…";
-            var cacheRoot = RootBox.Text;
-            var cached = await Task.Run(() => store.LoadIndex(cacheRoot));
-            if (cached is not null)
-            {
-                await ApplyIndexAsync(cached);
-                StatusText.Text = $"已加载缓存 · {cached.Files.Count:N0} 个文件；新增或删除文件后，请刷新索引";
-                SafeLog($"Cache loaded: files={cached.Files.Count}, groups={cached.GroupCount}");
-            }
-            else await ScanAsync();
-        }
-        catch (Exception ex) { SafeLog("Cache load failed: " + ex.Message); StatusText.Text = "缓存不可用，将重新扫描。"; await ScanAsync(); }
-        finally { if (!closing) RefreshButton.IsEnabled = true; }
+        await LoadCurrentLibraryAsync();
     }
     private async Task ApplyIndexAsync(FileIndex value)
     {
-        var builtEngine = await Task.Run(() => new SearchEngine(value));
+        var upgraded = await Task.Run(() => FileFormats.EnsureKeywords(value, Path.Combine(AppContext.BaseDirectory, "Resources"), CancellationToken.None));
         if (closing) return;
-        index = value; engine = builtEngine;
-        selected.RemoveWhere(word => !value.Keywords.Any(x => string.Equals(x.Word, word, StringComparison.OrdinalIgnoreCase)));
+        if (!ReferenceEquals(upgraded, value)) await Task.Run(() => store.SaveIndex(upgraded));
+        fullIndex = upgraded;
+        configuringFormat = true;
+        try
+        {
+            var options = FileFormats.Options(upgraded); FormatFilter.ItemsSource = options;
+            if (!options.Any(o => o.Key == preferences.FileFormat)) preferences.FileFormat = "all";
+            FormatFilter.SelectedValue = preferences.FileFormat;
+        }
+        finally { configuringFormat = false; }
         IndexSummary.Text = $"{value.Files.Count:N0} 个文件 · {value.GroupCount:N0} 个资料组 · 更新于 {value.BuiltUtc.ToLocalTime():MM-dd HH:mm} · 每组每词只计一次";
         IndexSummary.ToolTip = value.Root;
         IssuesButton.IsEnabled = true;
-        PopulateKeywords();
-        await UpdateMatchesAsync();
+        await ApplyFormatAsync();
     }
     private async Task ScanAsync()
     {
@@ -108,7 +112,8 @@ public partial class MainWindow : Window
             if (!closing) { RefreshButton.IsEnabled = true; RootBox.IsEnabled = true; CancelButton.IsEnabled = false; ScanBar.Visibility = Visibility.Collapsed; }
         }
     }
-    private async void Refresh_Click(object sender, RoutedEventArgs e) => await ScanAsync();
+    private Task StartScanAsync() => activeScan = ScanAsync();
+    private async void Refresh_Click(object sender, RoutedEventArgs e) => await StartScanAsync();
     private void Cancel_Click(object sender, RoutedEventArgs e) { scanCancellation?.Cancel(); CancelButton.IsEnabled = false; StatusText.Text = "正在取消扫描…"; }
     private void KeywordSearch_Changed(object sender, RoutedEventArgs e) { if (!ready) return; keywordPage = 1; resetWaterfall = true; keywordTimer.Stop(); keywordTimer.Start(); }
     private void ViewOptions_Changed(object sender, SelectionChangedEventArgs e)
@@ -179,6 +184,7 @@ public partial class MainWindow : Window
         EmptyHint.Text = filter.Length > 0 ? "未找到符合规则的关键词，可调整关键词规则" : "没有符合当前规则的关键词，可降低资料组门槛";
         SelectionSummary.Text = selected.Count == 0 ? "尚未选择关键词" : "已选：" + string.Join(" ＋ ", selected);
         SelectionSummary.ToolTip = SelectionSummary.Text;
+        SelectedWords.ItemsSource = selected.OrderBy(w => w).ToList();
     }
     private async void Keyword_Click(object sender, RoutedEventArgs e)
     {
@@ -195,6 +201,39 @@ public partial class MainWindow : Window
         var keep = selected.First(); selected.Clear(); selected.Add(keep); PopulateKeywords(); await UpdateMatchesAsync();
     }
     private async void Clear_Click(object sender, RoutedEventArgs e) { selected.Clear(); ExtraSearch.Text = ""; PopulateKeywords(); await UpdateMatchesAsync(); }
+    private async void RemoveSelected_Click(object sender, RoutedEventArgs e) { if (sender is Button { Tag: string word }) { selected.Remove(word); PopulateKeywords(); await UpdateMatchesAsync(); } }
+    private async void ResetFilters_Click(object sender, RoutedEventArgs e)
+    {
+        ready = false; selected.Clear(); KeywordSearch.Text = ""; ExtraSearch.Text = ""; MultiSelect.IsChecked = false;
+        preferences.KeywordLength = 0; preferences.FileFormat = "all"; preferences.KeywordOrder = KeywordOrder.Frequency; preferences.KeywordDescending = true;
+        LengthFilter.SelectedValue = 0; SortField.SelectedIndex = 0; SortDirection.SelectedIndex = 1;
+        configuringFormat = true; FormatFilter.SelectedValue = "all"; configuringFormat = false;
+        ready = true; resetWaterfall = true; keywordPage = 1; SavePreferences(); await ApplyFormatAsync();
+    }
+    private async void Format_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (!ready || configuringFormat || FormatFilter.SelectedItem is not FileFormatOption choice) return;
+        preferences.FileFormat = choice.Key; SavePreferences(); resetWaterfall = true; keywordPage = 1;
+        try { await ApplyFormatAsync(); } catch (Exception ex) { StatusText.Text = "格式筛选未完成：" + ex.Message; }
+    }
+    private async Task ApplyFormatAsync()
+    {
+        if (fullIndex is null || FormatFilter.SelectedItem is not FileFormatOption choice) return;
+        formatCancellation?.Cancel(); var source = new CancellationTokenSource(); formatCancellation = source;
+        var version = ++formatVersion; var current = fullIndex;
+        try
+        {
+            var result = await Task.Run(() => FileFormats.Select(current, choice, source.Token));
+            var built = await Task.Run(() => new SearchEngine(result), source.Token);
+            if (closing || version != formatVersion) return;
+            index = result; engine = built; format = choice;
+            PopulateKeywords(); await UpdateMatchesAsync();
+            if (closing || version != formatVersion) return;
+            IndexSummary.Text = $"{(Directory.Exists(result.Root) ? "在线" : "离线缓存")} · {choice.Label} · {result.Files.Count:N0} 个文件 · {result.GroupCount:N0} 个资料组 · 更新于 {result.BuiltUtc.ToLocalTime():MM-dd HH:mm} · 跳过 {result.Issues.Count} 项";
+        }
+        catch (OperationCanceledException) { }
+        finally { if (formatCancellation == source) formatCancellation = null; source.Dispose(); }
+    }
     private void ExtraSearch_Changed(object sender, TextChangedEventArgs e) { if (!ready) return; matchTimer.Stop(); matchTimer.Start(); }
     private async Task UpdateMatchesAsync()
     {
@@ -222,11 +261,11 @@ public partial class MainWindow : Window
     private async Task ShowEverythingAsync()
     {
         if (index is null) return;
-        everything = EverythingBridge.Discover(everything?.Path ?? preferences.EverythingPath);
+        everything = EverythingBridge.Discover(string.IsNullOrWhiteSpace(preferences.EverythingPath) ? everything?.Path : preferences.EverythingPath);
         UpdateEverythingStatus();
         if (everything is null) { StatusText.Text = "未找到 Everything，请点击“选择 Everything”指定已有程序。"; return; }
         if (!Directory.Exists(index.Root)) { StatusText.Text = "扫描目录或磁盘当前不可用，恢复连接后重试。"; return; }
-        try { pendingEverythingQuery = EverythingBridge.BuildQuery(index.Root, selected, ExtraSearch.Text); }
+        try { pendingEverythingQuery = EverythingBridge.BuildQuery(index.Root, selected, ExtraSearch.Text) + FileFormats.EverythingClause(format); }
         catch (Exception ex) { StatusText.Text = ex.Message; return; }
         if (dispatchingEverything) { StatusText.Text = "Everything 正在启动，将显示最后一次选择…"; return; }
         dispatchingEverything = true;
@@ -325,6 +364,7 @@ public partial class MainWindow : Window
         try { var current = store.LoadPreferences(); current.WindowWidth = RestoreBounds.Width; current.WindowHeight = RestoreBounds.Height; store.SavePreferences(current); }
         catch (Exception ex) { SafeLog("Window size save failed: " + ex.Message); }
         keywordTimer.Stop(); matchTimer.Stop(); scanCancellation?.Cancel(); matchCancellation?.Cancel();
+        formatCancellation?.Cancel();
     }
     private sealed record KeywordChoice(string Word, int Groups, int Rank, bool Selected);
     private sealed record KeywordBatch(List<KeywordChoice> Items);

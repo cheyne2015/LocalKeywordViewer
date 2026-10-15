@@ -1,6 +1,6 @@
 # 高频关键词面板 + Everything
 
-Windows 本地工具，默认扫描 用户选定目录 的文件名和相对文件夹名，通过 jieba.NET 自动归纳中文高频关键词。文件结果交给本机现有 Everything 查看。
+Windows 离线工具，使用 jieba.NET 从用户选定目录的文件名和相对文件夹名归纳高频关键词，交给本机现有 Everything 查看文件。
 
 ## 使用
 
@@ -13,6 +13,16 @@ Windows 本地工具，默认扫描 用户选定目录 的文件名和相对文�
 9. 排序支持出现频率、词组名称、词组字数及正序／倒序；字数下拉只列出当前关键词实际存在的字数，随搜索、规则和屏蔽更新，仍保留“全部字数”。排序、字数筛选和窗口大小会保存在本机。
 8. 每个关键词旁的“×”可直接将该词添加到屏蔽列表，立即保存；词组主体仍用于搜索。右键关键词也可“添加到屏蔽词”。在“忽略与恢复”中选中并恢复，或在“关键词规则”中删除屏蔽词。
 7. 下方“附加搜索文字”可查不在排行中的文字。“在 Everything 查看”发送当前组合，排序、类型筛选和文件打开沿用 Everything。
+
+## 2.0 资料库与格式筛选
+
+- 顶部下拉切换资料库；在“资料库与设置”中新增、改名、更改目录或移除。一库对应一个根目录，屏蔽词、规则、排序、字数、格式及缓存独立保存，记住上次使用的库。
+- 旧版本的索引和设置自动迁移为首个资料库，旧文件保留作恢复副本。没有缓存时后台扫描；离线时可浏览已有缓存，恢复连接后刷新。
+- 格式下拉仅列实际存在的类别及扩展名。可选视频、图片、音频、文档、压缩包，或具体扩展名。选定格式后词频按相同格式文件重新去重统计，Everything 同步带上格式条件。
+- 已选词固定显示，可逐个取消；“重置筛选”清除文字、字数、格式和选词，恢复默认排序，不会清空屏蔽列表。
+- 设置可导入／导出，不包含索引；默认省略目录和 Everything 路径。个人备份可勾选包含路径。导入新增资料库，已有库不覆盖；无路径设置需重新选择目录。资料库名称和屏蔽词也可能私密，导出文件不要随意公开。
+- 单实例运行：再次启动会激活已有窗口。单独指定 `--data` 时可运行隔离实例用于测试。
+- 移除资料库只删除应用缓存和偏好，不删除、改名或移动源目录文件。
 
 扫描根目录名称本身不参与关键词统计。一级文件夹及其所有后代文件算一个资料组；根目录每个独立文件单独算一组。只统计有文件的组，同组内每个词最多计一次。原始高频词库保留至少出现在两个资料组中的词。
 
@@ -39,7 +49,8 @@ Windows 本地工具，默认扫描 用户选定目录 的文件名和相对文�
 ```powershell
 dotnet run --project tests/KeywordViewer.Checks
 dotnet run --project tests/KeywordViewer.UiChecks
-dotnet publish src/KeywordViewer/KeywordViewer.csproj -c Release -r win-x64 --self-contained true -o release/KeywordPanel-1.4.1
+dotnet publish src/KeywordViewer/KeywordViewer.csproj -c Release -r win-x64 --self-contained true -p:DebugType=None -p:DebugSymbols=false -o release/KeywordPanel
+./tools/Check-PublicContent.ps1 -ArtifactDirectory release/KeywordPanel
 
 ```
 
@@ -55,3 +66,5 @@ dotnet publish src/KeywordViewer/KeywordViewer.csproj -c Release -r win-x64 --se
 - Everything 属于用户本机现有软件，不捆绑或重新分发。
 
 发布包不包含测试样本、扫描报告、原有 Everything 配置快照及用户索引。
+
+源码采用 [MIT](LICENSE)。开发流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，2.0 需求见 [docs/SPEC.md](docs/SPEC.md)。GitHub Actions 在 Windows 运行样本测试和发布内容检查；Release 提供自包含压缩包及 SHA256。

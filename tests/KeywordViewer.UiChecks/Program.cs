@@ -16,22 +16,31 @@ internal static class Program
         var verification = Path.Combine(project, "verification");
         using var checkSource = JsonDocument.Parse(File.ReadAllText(Path.Combine(verification, "checks.json")));
         var fixture = checkSource.RootElement.GetProperty("Fixture").GetString()!;
-        var store = new ViewerStore(Path.Combine(verification, "ui-data-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss")));
+        var rootStore = new ViewerStore(Path.Combine(verification, "ui-data-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss")));
+        var store = rootStore;
         var preferences = new ViewerPreferences { Root = fixture, Rules = new() { MinimumGroups = 2 } };
         store.SavePreferences(preferences);
         store.SaveIndex(new IndexScanner(Path.Combine(AppContext.BaseDirectory, "Resources")).Scan(fixture, default));
-        var app = new KeywordViewer.App(); app.InitializeComponent(); app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        var app = new TestApplication(); app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        var applicationSource = System.Xml.Linq.XDocument.Load(Path.Combine(project, "src", "KeywordViewer", "App.xaml"));
+        var presentation = applicationSource.Root!.Name.Namespace;
+        var resourcesSource = applicationSource.Root.Element(presentation + "Application.Resources")!.Elements().Single();
+        resourcesSource.SetAttributeValue(System.Xml.Linq.XNamespace.Xmlns + "x", "http://schemas.microsoft.com/winfx/2006/xaml");
+        using (var sourceStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(resourcesSource.ToString())))
+            app.Resources = (ResourceDictionary)System.Windows.Markup.XamlReader.Load(sourceStream, new System.Windows.Markup.ParserContext { BaseUri = new Uri("pack://application:,,,/KeywordViewer;component/") });
         // Main normally runs under Application.Run; preserve its dispatcher context for async handlers.
         System.Threading.SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(app.Dispatcher));
         Exception? dispatcherError = null;
         app.DispatcherUnhandledException += (_, e) => { dispatcherError = e.Exception; e.Handled = true; };
-        var panel = new KeywordViewer.MainWindow(store, fixture); app.MainWindow = panel;
+        var panel = new KeywordViewer.MainWindow(rootStore, fixture); app.MainWindow = panel;
+        ConfigureTestWindow(panel);
+        var manager = new LibraryManager(rootStore); store = manager.StoreFor(manager.Active);
         try
         {
             panel.Show();
             Wait(() => ((TextBlock)panel.FindName("StatusText")).Text.StartsWith("已加载缓存"));
-
-            Assert(WordButtons(panel).Count() == 2, "Fixture keywords visible");
+            Wait(() => WordButtons(panel).Count() >= 2);
+            Assert(WordButtons(panel).Count() == 2, "Fixture keywords visible: " + string.Join(",", WordButtons(panel).Select(b => b.Tag)));
             Assert(Descendants<WrapPanel>(panel).Any(), "Keywords use wrapping panel");
             var fixtureLengths = (ComboBox)panel.FindName("LengthFilter");
             Assert(fixtureLengths.Items.Count == 2, "Fixture offers only All and existing two-character length");
@@ -88,9 +97,13 @@ internal static class Program
             var stressRoot = Path.Combine(fixture, "stress"); Directory.CreateDirectory(stressRoot);
             var stressWords = Enumerable.Range(0, 6000).Select(i => new KeywordCount((i < 3000 ? "例" : "资料") + (char)(0x4e00 + i / 100) + (char)(0x4e00 + i % 100), 6002 - i)).Concat(new[] { new KeywordCount("北京", 4), new KeywordCount("旅行", 4) }).ToList();
             var sampleIndex = new FileIndex(stressRoot, DateTime.UtcNow, [], stressWords, [], 6002);
-            store.SaveIndex(sampleIndex);
-            var samplePrefs = store.LoadPreferences(); samplePrefs.Root = sampleIndex.Root; samplePrefs.Rules.MinimumGroups = 2; samplePrefs.Ignored.Clear(); samplePrefs.KeywordLength = 0; store.SavePreferences(samplePrefs);
-            var largePanel = new KeywordViewer.MainWindow(store, sampleIndex.Root); largePanel.Show();
+            var samplePrefs = store.LoadPreferences(); samplePrefs.Root = sampleIndex.Root; samplePrefs.Rules.MinimumGroups = 2; samplePrefs.Ignored.Clear(); samplePrefs.KeywordLength = 0;
+            var stressProfile = manager.Add("压力样本", sampleIndex.Root, samplePrefs); store = manager.StoreFor(stressProfile); store.SaveIndex(sampleIndex);
+            var offlineRoot = Path.Combine(fixture, "not-attached");
+            var offlineProfile = manager.Add("离线样本", offlineRoot, new ViewerPreferences { Rules = new() { MinimumGroups = 2 } });
+            var originalSample = manager.StoreFor(manager.Catalog.Libraries[0]).LoadIndex(fixture)!;
+            manager.StoreFor(offlineProfile).SaveIndex(originalSample with { Root = offlineRoot });
+            var largePanel = new KeywordViewer.MainWindow(rootStore, sampleIndex.Root); ConfigureTestWindow(largePanel); largePanel.Show();
             Wait(() => ((TextBlock)largePanel.FindName("StatusText")).Text.StartsWith("已加载缓存"));
             Wait(() => ((TextBlock)largePanel.FindName("KeywordSummary")).Text.Contains("/"));
             // Let the search debounce complete before checking all-keyword display.
@@ -126,14 +139,40 @@ internal static class Program
             ((ComboBox)largePanel.FindName("SortDirection")).SelectedIndex = 0;
             Assert(store.LoadPreferences().KeywordLength == 3 && store.LoadPreferences().KeywordOrder == KeywordOrder.Length && !store.LoadPreferences().KeywordDescending, "View preferences persisted");
             Assert(largePanel.Icon is not null && Application.Current.TryFindResource("BrandLogo") is DrawingImage, "Logo and window icon loaded");
+            var libraryBox = (ComboBox)largePanel.FindName("LibraryBox");
+            libraryBox.SelectedValue = manager.Catalog.Libraries[0].Id;
+            Wait(() => ((TextBox)largePanel.FindName("RootBox")).Text == fixture && ((TextBlock)largePanel.FindName("StatusText")).Text.StartsWith("已加载缓存"));
+            var formats = (ComboBox)largePanel.FindName("FormatFilter"); formats.SelectedValue = "ext:.txt";
+            Wait(() => ((TextBlock)largePanel.FindName("IndexSummary")).Text.Contains(".txt"));
+            var formatSummary = ((TextBlock)largePanel.FindName("IndexSummary")).Text;
+            var fixtureFileCount = manager.StoreFor(manager.Catalog.Libraries[0]).LoadIndex(fixture)!.Files.Count(f => f.Extension == ".txt");
+            Assert(formatSummary.Contains($"{fixtureFileCount:N0} 个文件"), "Format filtering updates displayed count: " + formatSummary);
+            ((TextBox)largePanel.FindName("KeywordSearch")).Text = "北京";
+            Click(largePanel, "重置筛选");
+            Wait(() => Equals(formats.SelectedValue, "all") && ((TextBox)largePanel.FindName("KeywordSearch")).Text.Length == 0);
+            Assert(((ItemsControl)largePanel.FindName("SelectedWords")).Items.Count == 0, "Reset clears fixed selected words");
+            libraryBox.SelectedValue = offlineProfile.Id;
+            Wait(() => ((TextBlock)largePanel.FindName("StatusText")).Text.Contains("目录离线") && ((TextBlock)largePanel.FindName("IndexSummary")).Text.Contains("离线缓存"));
+            Assert(WordButtons(largePanel).Any(), "Offline library remains browsable from cache");
             if (dispatcherError is not null) throw dispatcherError;
             largePanel.Close();
-            var passed = new { Passed = true, Cases = new[] { "real WPF cache load", "wrapping keyword layout", "invalid rule input", "frequency rule save and reopen", "contains exclusion save", "context-menu ignore", "restore ignored words", "restore rule-excluded words", "keyword search", "chip X block and unified restoration", "default waterfall without mode checkbox", "waterfall scroll appends 12 pages with virtualized controls", "sorting, length filter, persistence and branding" }, Store = store.BaseDirectory };
+            var passed = new { Passed = true, Cases = new[] { "isolated WPF cache load", "wrapping keyword layout", "invalid rule input", "frequency rule save and reopen", "contains exclusion save", "context-menu ignore", "restore ignored words", "restore rule-excluded words", "keyword search", "chip X block and unified restoration", "default waterfall without mode checkbox", "waterfall scroll appends 12 pages with virtualized controls", "sorting, length filter, persistence and branding", "library switch and format file count", "reset filters and fixed selected words", "offline cache browsing" }, Store = store.BaseDirectory };
             File.WriteAllText(Path.Combine(verification, "ui-checks.json"), JsonSerializer.Serialize(passed, new JsonSerializerOptions { WriteIndented = true }));
             Console.WriteLine(JsonSerializer.Serialize(passed));
             panel.Close(); app.Shutdown(); return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); panel.Close(); app.Shutdown(); return 1; }
+    }
+    private sealed class TestApplication : Application
+    {
+        // Use the real resources without starting another real user session or single-instance guard.
+        protected override void OnStartup(StartupEventArgs e) { }
+    }
+    private static void ConfigureTestWindow(Window window)
+    {
+        // Keep fixture windows away from the user's desktop; the formal application is inspected separately.
+        window.ShowInTaskbar = false; window.ShowActivated = false; window.WindowStartupLocation = WindowStartupLocation.Manual;
+        window.Left = -30000; window.Top = -30000;
     }
     private static IEnumerable<Button> WordButtons(Window panel) { panel.UpdateLayout(); return Descendants<Button>((ListBox)panel.FindName("InfiniteKeywordList")).Where(b => b.Tag is string && b.ContextMenu is not null); }
     private static void Modal(Window panel, string title, Action<Window> action)
