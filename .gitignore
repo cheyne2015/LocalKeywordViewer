@@ -1,0 +1,17 @@
+**/bin/
+**/obj/
+release/
+verification/
+artifacts/
+.vs/
+.idea/
+.env*
+*.user
+*.suo
+*.log
+*.db
+*.json.gz
+preferences.json
+libraries.json
+settings-export*.json
+private-*

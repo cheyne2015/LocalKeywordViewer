@@ -1,0 +1,1 @@
+<Project><PropertyGroup><Deterministic>true</Deterministic><ContinuousIntegrationBuild>true</ContinuousIntegrationBuild><PathMap>$(MSBuildThisFileDirectory)=/_/LocalKeywordViewer/</PathMap></PropertyGroup></Project>
