@@ -1,0 +1,26 @@
+name: checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Privacy preflight
+        shell: pwsh
+        run: ./tools/Check-PublicContent.ps1
+      - name: Core checks
+        run: dotnet run --project tests/KeywordViewer.Checks
+      - name: WPF integration checks
+        run: dotnet run --project tests/KeywordViewer.UiChecks
+      - name: Publish self-contained Windows x64
+        run: dotnet publish src/KeywordViewer/KeywordViewer.csproj -c Release -r win-x64 --self-contained true -p:DebugType=None -p:DebugSymbols=false -o artifacts/KeywordPanel
+      - name: Validate publish contents
+        shell: pwsh
+        run: ./tools/Check-PublicContent.ps1 -ArtifactDirectory artifacts/KeywordPanel

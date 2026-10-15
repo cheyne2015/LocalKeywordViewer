@@ -228,6 +228,7 @@ public partial class MainWindow : Window
             if (closing || version != formatVersion) return;
             index = result; engine = built; format = choice;
             PopulateKeywords(); await UpdateMatchesAsync();
+            if (closing || version != formatVersion) return;
             IndexSummary.Text = $"{(Directory.Exists(result.Root) ? "在线" : "离线缓存")} · {choice.Label} · {result.Files.Count:N0} 个文件 · {result.GroupCount:N0} 个资料组 · 更新于 {result.BuiltUtc.ToLocalTime():MM-dd HH:mm} · 跳过 {result.Issues.Count} 项";
         }
         catch (OperationCanceledException) { }
@@ -260,7 +261,7 @@ public partial class MainWindow : Window
     private async Task ShowEverythingAsync()
     {
         if (index is null) return;
-        everything = EverythingBridge.Discover(everything?.Path ?? preferences.EverythingPath);
+        everything = EverythingBridge.Discover(string.IsNullOrWhiteSpace(preferences.EverythingPath) ? everything?.Path : preferences.EverythingPath);
         UpdateEverythingStatus();
         if (everything is null) { StatusText.Text = "未找到 Everything，请点击“选择 Everything”指定已有程序。"; return; }
         if (!Directory.Exists(index.Root)) { StatusText.Text = "扫描目录或磁盘当前不可用，恢复连接后重试。"; return; }

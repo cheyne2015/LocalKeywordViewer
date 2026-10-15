@@ -133,7 +133,9 @@ internal static class Program
             Wait(() => ((TextBox)largePanel.FindName("RootBox")).Text == fixture && ((TextBlock)largePanel.FindName("StatusText")).Text.StartsWith("已加载缓存"));
             var formats = (ComboBox)largePanel.FindName("FormatFilter"); formats.SelectedValue = "ext:.txt";
             Wait(() => ((TextBlock)largePanel.FindName("IndexSummary")).Text.Contains(".txt"));
-            Assert(((TextBlock)largePanel.FindName("IndexSummary")).Text.Contains("7 个文件"), "Format filtering updates displayed count");
+            var formatSummary = ((TextBlock)largePanel.FindName("IndexSummary")).Text;
+            var fixtureFileCount = manager.StoreFor(manager.Catalog.Libraries[0]).LoadIndex(fixture)!.Files.Count(f => f.Extension == ".txt");
+            Assert(formatSummary.Contains($"{fixtureFileCount:N0} 个文件"), "Format filtering updates displayed count: " + formatSummary);
             ((TextBox)largePanel.FindName("KeywordSearch")).Text = "北京";
             Click(largePanel, "重置筛选");
             Wait(() => Equals(formats.SelectedValue, "all") && ((TextBox)largePanel.FindName("KeywordSearch")).Text.Length == 0);

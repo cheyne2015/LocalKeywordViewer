@@ -7,6 +7,7 @@ $taskForbidden = '(?i)(^|/)(verification|release|artifacts|bin|obj)/|(^|/)(prefe
 $taskPatterns = @('(?i)[A-Z]:[\\/]+Users[\\/]+[^\\/]+[\\/]', 'gh[pousr]_[A-Za-z0-9]{24,}', 'github_pat_[A-Za-z0-9_]{20,}', 'sk-[A-Za-z0-9]{24,}')
 foreach ($taskFile in $taskFiles) {
     if ($taskFile -match $taskForbidden) { throw "Private/generated file is tracked: $taskFile" }
+    if ($taskFile -match '\.json$' -and $taskFile -notmatch '^Resources/prob_(emit|trans)\.json$') { throw "Unapproved JSON data file: $taskFile" }
     if ($taskFile -match '\.ico$') { continue }
     $taskContent = [IO.File]::ReadAllText((Join-Path $taskRoot $taskFile))
     foreach ($taskPattern in $taskPatterns) { if ($taskContent -match $taskPattern) { throw "Potential private content in $taskFile" } }

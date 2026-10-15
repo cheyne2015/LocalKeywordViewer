@@ -34,6 +34,7 @@ public partial class MainWindow
         EmptyHint.Visibility = Visibility.Visible; EmptyHint.Text = "正在准备资料库…";
         configuringFormat = true; FormatFilter.ItemsSource = null; configuringFormat = false;
         store = libraries.StoreFor(libraries.Active); preferences = store.LoadPreferences();
+        everything = EverythingBridge.Discover(preferences.EverythingPath); UpdateEverythingStatus();
         var root = libraries.Active.Root; RootBox.Text = root;
         ready = false; KeywordSearch.Text = ""; ExtraSearch.Text = ""; MultiSelect.IsChecked = false;
         SortField.SelectedIndex = Math.Clamp((int)preferences.KeywordOrder, 0, 2); SortDirection.SelectedIndex = preferences.KeywordDescending ? 1 : 0;

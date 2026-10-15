@@ -89,7 +89,8 @@ public sealed class LibraryManager
             if (!includePaths) { prefs.Root = ""; prefs.EverythingPath = ""; }
             return new ExportLibrary(l.Name, includePaths ? l.Root : "", prefs);
         }).ToList();
-        File.WriteAllText(path, JsonSerializer.Serialize(new SettingsExport(1, includePaths, entries), new JsonSerializerOptions { WriteIndented = true }));
+        var destination = Path.GetFullPath(path);
+        new ViewerStore(Path.GetDirectoryName(destination)!).SaveDocument(Path.GetFileName(destination), new SettingsExport(1, includePaths, entries));
     }
     public int Import(string path)
     {
@@ -99,7 +100,7 @@ public sealed class LibraryManager
         // Validate the complete document before writing any profile. Imported profiles never overwrite existing ones.
         foreach (var item in package.Libraries)
         {
-            if (string.IsNullOrWhiteSpace(item.Name) || item.Name.Length > 90 || item.Preferences is null) throw new InvalidDataException("资料库设置无效。");
+            if (string.IsNullOrWhiteSpace(item.Name) || item.Name.Length > 100 || item.Preferences?.Rules is null || item.Root is null) throw new InvalidDataException("资料库设置无效。");
             item.Preferences.Rules.Validate();
             if (package.IncludesPaths && item.Root.Length > 0) Path.GetFullPath(item.Root);
         }
@@ -108,7 +109,7 @@ public sealed class LibraryManager
             var root = package.IncludesPaths ? item.Root : "";
             if (Catalog.Libraries.Any(l => SameRoot(l.Root, root))) root = "";
             if (!package.IncludesPaths) item.Preferences.EverythingPath = "";
-            Add(item.Name + "（导入）", root, item.Preferences);
+            Add(item.Name.Length <= 96 ? item.Name + "（导入）" : item.Name, root, item.Preferences);
         }
         return package.Libraries.Count;
     }

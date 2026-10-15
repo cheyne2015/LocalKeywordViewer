@@ -123,7 +123,9 @@ Assert(new LibraryManager(catalogStore).Active.Id == second.Id, "Last library re
 manager.Update(second.Id, "已改名", secondRoot); Assert(manager.Active.Name == "已改名", "Rename updates profile");
 var settingsFile = Path.Combine(verification, "settings-export-" + Guid.NewGuid().ToString("N") + ".json"); manager.Export(settingsFile, false);
 Assert(!File.ReadAllText(settingsFile).Contains(fixture.Replace("\\", "\\\\"), StringComparison.OrdinalIgnoreCase) && !File.ReadAllText(settingsFile).Contains("example.exe"), "Shareable settings omit root and executable paths");
+manager.Update(originalProfile.Id, new string('库', 100), originalProfile.Root); manager.Export(settingsFile, false);
 var beforeImport = manager.Catalog.Libraries.Count; manager.Import(settingsFile); Assert(manager.Catalog.Libraries.Count == beforeImport * 2 && manager.Catalog.Libraries.Skip(beforeImport).All(p => p.Root.Length == 0), "Import adds isolated profiles requiring path assignment");
+Assert(manager.Catalog.Libraries.Any(p => p.Id != originalProfile.Id && p.Name.Length == 100), "Maximum length library name round-trips through export/import");
 manager.Remove(second.Id); Assert(File.Exists(Path.Combine(secondRoot, "original.txt")), "Remove library never touches source files");
 Assert(File.ReadAllBytes(Path.Combine(catalogStore.BaseDirectory, "preferences.json")).SequenceEqual(legacyPreferences), "Migration preserves old preferences backup");
 passed.Add("library migration, isolation, switching, rename, safe removal and path-free export/import");
