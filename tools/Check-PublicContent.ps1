@@ -23,7 +23,7 @@ foreach ($taskCommit in @(git -C $taskRoot rev-list --all)) {
 if ($ArtifactDirectory) {
     $taskAllowed = @('.exe', '.dll', '.json', '.txt', '.md')
     foreach ($taskFile in Get-ChildItem -LiteralPath $ArtifactDirectory -File -Recurse) {
-        if ($taskAllowed -notcontains $taskFile.Extension) { throw "Unexpected artifact: $($taskFile.Name)" }
+        if ($taskAllowed -notcontains $taskFile.Extension -and $taskFile.Name -ne 'LICENSE') { throw "Unexpected artifact: $($taskFile.Name)" }
         if ($taskFile.Name -match '(?i)preferences|libraries|runtime\.log|\.db$|\.pdb$|index-') { throw "Private artifact: $($taskFile.Name)" }
         $taskBytes = [IO.File]::ReadAllBytes($taskFile.FullName)
         foreach ($taskEncoding in @([Text.Encoding]::UTF8, [Text.Encoding]::Unicode)) {
