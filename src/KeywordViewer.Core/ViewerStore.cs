@@ -48,6 +48,7 @@ public sealed class ViewerStore
     }
     public void SavePreferences(ViewerPreferences preferences) => AtomicWrite(Path.Combine(BaseDirectory, "preferences.json"), stream => JsonSerializer.Serialize(stream, preferences));
     public void Log(string message) => File.AppendAllText(Path.Combine(BaseDirectory, "runtime.log"), $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} {message}{Environment.NewLine}");
+    internal void SaveDocument<T>(string name, T document) => AtomicWrite(Path.Combine(BaseDirectory, name), output => JsonSerializer.Serialize(output, document, new JsonSerializerOptions { WriteIndented = true }));
     private static void AtomicWrite(string destination, Action<Stream> write, CancellationToken token = default)
     {
         var temporary = destination + "." + Guid.NewGuid().ToString("N") + ".tmp";

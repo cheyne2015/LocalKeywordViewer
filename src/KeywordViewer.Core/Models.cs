@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 namespace KeywordViewer.Core;
 
 public sealed record FileEntry(string FullPath, string RelativeDirectory, string Name, string Extension,
-    long Size, DateTime ModifiedUtc, string GroupKey)
+    long Size, DateTime ModifiedUtc, string GroupKey, List<string>? Keywords = null)
 {
     [JsonIgnore] public string SearchText => string.IsNullOrEmpty(RelativeDirectory) ? Name : RelativeDirectory + "\\" + Name;
     [JsonIgnore] public string DirectoryDisplay => string.IsNullOrEmpty(RelativeDirectory) ? "（根目录）" : RelativeDirectory;
@@ -23,6 +23,7 @@ public sealed class ViewerPreferences
     public KeywordOrder KeywordOrder { get; set; } = KeywordOrder.Frequency;
     public bool KeywordDescending { get; set; } = true;
     public int KeywordLength { get; set; }
+    public string FileFormat { get; set; } = "all";
     public double WindowWidth { get; set; } = 780;
     public double WindowHeight { get; set; } = 900;
 }

@@ -50,7 +50,9 @@ public sealed class IndexScanner(string resources)
                             if (relativeDir == ".") relativeDir = "";
                             // Prefixes separate standalone root files from identically named groups.
                             var groupKey = dir.Group.Length == 0 ? "file:" + info.Name : "dir:" + dir.Group;
-                            files.Add(new(path, relativeDir, info.Name, info.Extension.ToLowerInvariant(), info.Length, info.LastWriteTimeUtc, groupKey));
+                            var fileWords = new HashSet<string>(dir.Inherited, StringComparer.OrdinalIgnoreCase);
+                            fileWords.UnionWith(Tokens(info.Name, true));
+                            files.Add(new(path, relativeDir, info.Name, info.Extension.ToLowerInvariant(), info.Length, info.LastWriteTimeUtc, groupKey, fileWords.ToList()));
                             if (!groups.TryGetValue(groupKey, out var groupWords)) groups[groupKey] = groupWords = new(StringComparer.OrdinalIgnoreCase);
                             groupWords.UnionWith(dir.Inherited);
                             groupWords.UnionWith(Tokens(info.Name, true));
