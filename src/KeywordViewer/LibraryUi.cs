@@ -28,7 +28,7 @@ public partial class MainWindow
     {
         switchingLibrary = true; LibraryBox.IsEnabled = false; RefreshButton.IsEnabled = false;
         formatCancellation?.Cancel(); formatVersion++; matchCancellation?.Cancel(); matchingVersion++;
-        index = null; fullIndex = null; engine = null; keywordBatches.Clear(); selected.Clear(); SelectedWords.ItemsSource = null;
+        index = null; fullIndex = null; engine = null; keywordBatches.Clear(); selected.Clear(); pendingWords.Clear(); navigationLevels.Clear(); UpdateBreadcrumbs(); SelectedWords.ItemsSource = null;
         pendingEverythingQuery = null;
         KeywordSummary.Text = "等待索引"; IndexSummary.Text = "当前资料库尚无可用索引";
         EmptyHint.Visibility = Visibility.Visible; EmptyHint.Text = "正在准备资料库…";

@@ -2,14 +2,14 @@ namespace KeywordViewer.Core;
 
 public static class KeywordView
 {
-    public static List<int> AvailableLengths(IEnumerable<KeywordCount> words, ViewerPreferences preferences, string search) =>
-        Filter(words, preferences, search).Select(k => k.Word.Length).Distinct().Order().ToList();
-    private static IEnumerable<KeywordCount> Filter(IEnumerable<KeywordCount> words, ViewerPreferences preferences, string search) =>
-        words.Where(k => preferences.Rules.Accepts(k) && !preferences.Ignored.Contains(k.Word)
+    public static List<int> AvailableLengths(IEnumerable<KeywordCount> words, ViewerPreferences preferences, string search, int? minimumGroups = null) =>
+        Filter(words, preferences, search, minimumGroups).Select(k => k.Word.Length).Distinct().Order().ToList();
+    private static IEnumerable<KeywordCount> Filter(IEnumerable<KeywordCount> words, ViewerPreferences preferences, string search, int? minimumGroups = null) =>
+        words.Where(k => preferences.Rules.Accepts(k, minimumGroups) && !preferences.Ignored.Contains(k.Word)
             && k.Word.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase));
-    public static List<KeywordCount> Apply(IEnumerable<KeywordCount> words, ViewerPreferences preferences, string search)
+    public static List<KeywordCount> Apply(IEnumerable<KeywordCount> words, ViewerPreferences preferences, string search, int? minimumGroups = null)
     {
-        var filtered = Filter(words, preferences, search).Where(k => preferences.KeywordLength == 0 || k.Word.Length == preferences.KeywordLength);
+        var filtered = Filter(words, preferences, search, minimumGroups).Where(k => preferences.KeywordLength == 0 || k.Word.Length == preferences.KeywordLength);
         IOrderedEnumerable<KeywordCount> ordered = preferences.KeywordOrder switch
         {
             KeywordOrder.Name => preferences.KeywordDescending ? filtered.OrderByDescending(k => k.Word, StringComparer.CurrentCultureIgnoreCase) : filtered.OrderBy(k => k.Word, StringComparer.CurrentCultureIgnoreCase),

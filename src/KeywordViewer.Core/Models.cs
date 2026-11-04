@@ -23,6 +23,7 @@ public sealed class ViewerPreferences
     public KeywordOrder KeywordOrder { get; set; } = KeywordOrder.Frequency;
     public bool KeywordDescending { get; set; } = true;
     public int KeywordLength { get; set; }
+    public int DrilldownMinimumGroups { get; set; } = 2;
     public string FileFormat { get; set; } = "all";
     public double WindowWidth { get; set; } = 780;
     public double WindowHeight { get; set; } = 900;
