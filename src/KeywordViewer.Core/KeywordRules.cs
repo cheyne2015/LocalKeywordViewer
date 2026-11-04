@@ -11,9 +11,9 @@ public sealed class KeywordRules
     { "最新", "合集", "全集", "高清", "超清", "视频", "图片", "精品", "推荐", "无水印", "去重", "版本", "极品", "超级", "顶级", "高质", "质量", "全新", "新品", "精选", "超多", "大量", "稀有", "重磅", "独家", "完整", "更新", "系列", "精彩", "各种", "一个", "两个", "全部" };
     public List<string> ExcludedContains { get; set; } = [];
     private static readonly Regex Chinese = new(@"^[\p{IsCJKUnifiedIdeographs}]+$", RegexOptions.Compiled);
-    public bool Accepts(KeywordCount keyword)
+    public bool Accepts(KeywordCount keyword, int? minimumGroups = null)
     {
-        return keyword.Groups >= MinimumGroups && keyword.Word.Length >= MinimumLength && keyword.Word.Length <= MaximumLength
+        return keyword.Groups >= (minimumGroups ?? MinimumGroups) && keyword.Word.Length >= MinimumLength && keyword.Word.Length <= MaximumLength
             && (!ChineseOnly || Chinese.IsMatch(keyword.Word)) && !ExcludedWords.Contains(keyword.Word)
             && !ExcludedContains.Any(fragment => !string.IsNullOrWhiteSpace(fragment) && keyword.Word.Contains(fragment, StringComparison.OrdinalIgnoreCase));
     }

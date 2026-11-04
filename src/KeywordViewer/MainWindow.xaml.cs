@@ -15,6 +15,10 @@ public partial class MainWindow : Window
     private readonly LibraryManager libraries;
     private ViewerPreferences preferences;
     private readonly HashSet<string> selected = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> pendingWords = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<string[]> navigationLevels = [];
+    private int CurrentMinimumGroups => selected.Count == 0 ? preferences.Rules.MinimumGroups : Math.Clamp(preferences.DrilldownMinimumGroups, 2, 1000000);
+    private string[] SearchWords => selected.Concat(pendingWords).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     private FileIndex? index;
     private FileIndex? fullIndex;
     private FileFormatOption format = new("all", "全部格式", []);
@@ -44,7 +48,7 @@ public partial class MainWindow : Window
         this.store = libraries.StoreFor(libraries.Active);
         preferences = this.store.LoadPreferences();
         InitializeComponent();
-        VersionText.Text = $"v{typeof(App).Assembly.GetName().Version?.ToString(3)} · Ctrl 点击多选 · 离线名称索引";
+        VersionText.Text = $"v{typeof(App).Assembly.GetName().Version?.ToString(3)} · 点击逐层检索 · Ctrl 多选后进入下一层";
         Width = double.IsFinite(preferences.WindowWidth) ? Math.Clamp(preferences.WindowWidth, MinWidth, Math.Max(MinWidth, SystemParameters.WorkArea.Width)) : 780;
         Height = double.IsFinite(preferences.WindowHeight) ? Math.Clamp(preferences.WindowHeight, MinHeight, Math.Max(MinHeight, SystemParameters.WorkArea.Height)) : 900;
         SortField.SelectedIndex = Math.Clamp((int)preferences.KeywordOrder, 0, 2);
@@ -142,7 +146,7 @@ public partial class MainWindow : Window
         var pages = Math.Max(1, (filteredKeywords.Count + 99) / 100);
         PreviousPage.IsEnabled = keywordPage > 1; NextPage.IsEnabled = keywordPage < pages;
         PageSummary.Text = $" {keywordPage} / {pages} 页 · 已加载 {keywordBatches.Count} 页 ";
-        KeywordSummary.Text = $"已加载 {Math.Min(keywordBatches.Count * 100, filteredKeywords.Count):N0} / {filteredKeywords.Count:N0} 个 · 门槛 {preferences.Rules.MinimumGroups} 组";
+        KeywordSummary.Text = $"已加载 {Math.Min(keywordBatches.Count * 100, filteredKeywords.Count):N0} / {filteredKeywords.Count:N0} 个 · 门槛 {CurrentMinimumGroups} 组";
     }
     private void Infinite_ScrollChanged(object sender, ScrollChangedEventArgs e)
     {
@@ -158,18 +162,20 @@ public partial class MainWindow : Window
     {
         if (index is null) return;
         var filter = KeywordSearch.Text.Trim();
-        var lengths = KeywordView.AvailableLengths(index.Keywords, preferences, filter);
+        var lengths = KeywordView.AvailableLengths(index.Keywords, preferences, filter, CurrentMinimumGroups);
         updatingLengthOptions = true;
         try
         {
-            if (preferences.KeywordLength != 0 && !lengths.Contains(preferences.KeywordLength)) { preferences.KeywordLength = 0; SavePreferences(); }
+            // Preserve the user's length filter even when this narrower scope has no word of that length.
             var values = new[] { 0 }.Concat(lengths).ToList();
-            if (LengthFilter.ItemsSource is not IEnumerable<LengthOption> existing || !existing.Select(x => x.Value).SequenceEqual(values))
-                LengthFilter.ItemsSource = values.Select(n => new LengthOption(n, n == 0 ? "全部字数" : $"{n} 字")).ToList();
+            if (preferences.KeywordLength != 0 && !values.Contains(preferences.KeywordLength)) values.Add(preferences.KeywordLength);
+            var options = values.Select(n => new LengthOption(n, n == 0 ? "全部字数" : lengths.Contains(n) ? $"{n} 字" : $"{n} 字（无匹配）")).ToList();
+            if (LengthFilter.ItemsSource is not IEnumerable<LengthOption> existing || !existing.SequenceEqual(options))
+                LengthFilter.ItemsSource = options;
             LengthFilter.SelectedValue = preferences.KeywordLength;
         }
         finally { updatingLengthOptions = false; }
-        var candidates = KeywordView.Apply(index.Keywords, preferences, filter).Select((k, i) => new KeywordChoice(k.Word, k.Groups, i + 1, selected.Contains(k.Word))).ToList();
+        var candidates = KeywordView.Apply(index.Keywords, preferences, filter, CurrentMinimumGroups).Select((k, i) => new KeywordChoice(k.Word, k.Groups, i + 1, pendingWords.Contains(k.Word))).ToList();
         filteredKeywords = candidates;
         var available = candidates.Count;
         var pages = Math.Max(1, (available + 99) / 100);
@@ -179,32 +185,75 @@ public partial class MainWindow : Window
         keywordBatches.Clear();
         EnsureLoadedPage(Math.Max(keywordPage, Math.Max(1, wasLoaded)));
         UpdatePageSummary();
-        KeywordSummary.ToolTip = $"原始高频词 {index.Keywords.Count:N0} 个；当前规则：至少 {preferences.Rules.MinimumGroups} 个资料组，词长 {preferences.Rules.MinimumLength}～{preferences.Rules.MaximumLength}，{(preferences.Rules.ChineseOnly ? "仅中文" : "含英文")}。右键关键词可忽略。";
+        KeywordSummary.ToolTip = $"原始高频词 {index.Keywords.Count:N0} 个；当前规则：至少 {CurrentMinimumGroups} 个资料组，词长 {preferences.Rules.MinimumLength}～{preferences.Rules.MaximumLength}，{(preferences.Rules.ChineseOnly ? "仅中文" : "含英文")}。右键关键词可忽略。";
         EmptyHint.Visibility = available == 0 ? Visibility.Visible : Visibility.Collapsed;
-        EmptyHint.Text = filter.Length > 0 ? "未找到符合规则的关键词，可调整关键词规则" : "没有符合当前规则的关键词，可降低资料组门槛";
-        SelectionSummary.Text = selected.Count == 0 ? "尚未选择关键词" : "已选：" + string.Join(" ＋ ", selected);
+        EmptyHint.Text = selected.Count > 0 ? "没有更多符合筛选规则的关键词；可返回上层或调整规则" : filter.Length > 0 ? "未找到符合规则的关键词，可调整关键词规则" : "没有符合当前规则的关键词，可降低资料组门槛";
+        SelectionSummary.Text = SearchWords.Length == 0 ? "点击关键词开始逐层检索" : "当前条件：" + string.Join(" ＋ ", SearchWords);
         SelectionSummary.ToolTip = SelectionSummary.Text;
-        SelectedWords.ItemsSource = selected.OrderBy(w => w).ToList();
+        SelectedWords.ItemsSource = SearchWords;
+        EnterNextLevel.IsEnabled = pendingWords.Count > 0 && InfiniteKeywordList.IsEnabled;
+        UpdateBreadcrumbs();
     }
     private async void Keyword_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: string word } || index is null) return;
-        if (MultiSelect.IsChecked == true || Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) { if (!selected.Add(word)) selected.Remove(word); }
-        else { selected.Clear(); selected.Add(word); }
-        PopulateKeywords();
-        await UpdateMatchesAsync();
-        await ShowEverythingAsync();
+        if (sender is not Button { Tag: string word } || index is null || !InfiniteKeywordList.IsEnabled) return;
+        if (MultiSelect.IsChecked == true || Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+        {
+            if (!pendingWords.Add(word)) pendingWords.Remove(word);
+            PopulateKeywords(); await UpdateMatchesAsync();
+        }
+        else await EnterLevelAsync([word]);
     }
-    private async void MultiSelect_Changed(object sender, RoutedEventArgs e)
+    private void MultiSelect_Changed(object sender, RoutedEventArgs e) { }
+    private async void EnterNextLevel_Click(object sender, RoutedEventArgs e) => await EnterLevelAsync(pendingWords.ToArray());
+    private async Task EnterLevelAsync(string[] words)
     {
-        if (!ready || MultiSelect.IsChecked == true || selected.Count <= 1) return;
-        var keep = selected.First(); selected.Clear(); selected.Add(keep); PopulateKeywords(); await UpdateMatchesAsync();
+        var added = words.Where(w => !selected.Contains(w)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (added.Length == 0) return;
+        navigationLevels.Add(added); selected.UnionWith(added);
+        await RefreshNavigationAsync();
     }
-    private async void Clear_Click(object sender, RoutedEventArgs e) { selected.Clear(); ExtraSearch.Text = ""; PopulateKeywords(); await UpdateMatchesAsync(); }
-    private async void RemoveSelected_Click(object sender, RoutedEventArgs e) { if (sender is Button { Tag: string word }) { selected.Remove(word); PopulateKeywords(); await UpdateMatchesAsync(); } }
+    private async Task ReturnToLevelAsync(int depth)
+    {
+        depth = Math.Clamp(depth, 0, navigationLevels.Count);
+        navigationLevels.RemoveRange(depth, navigationLevels.Count - depth);
+        selected.Clear(); selected.UnionWith(navigationLevels.SelectMany(x => x));
+        await RefreshNavigationAsync();
+    }
+    private async Task RefreshNavigationAsync()
+    {
+        pendingWords.Clear(); keywordTimer.Stop(); KeywordSearch.Text = ""; keywordTimer.Stop();
+        keywordPage = 1; resetWaterfall = true;
+        await ApplyFormatAsync();
+    }
+    private void UpdateBreadcrumbs()
+    {
+        NavigationPath.Children.Clear();
+        Add("全部资料", 0);
+        for (int i = 0; i < navigationLevels.Count; i++)
+        {
+            NavigationPath.Children.Add(new TextBlock { Text = " › ", VerticalAlignment = VerticalAlignment.Center });
+            Add(string.Join(" ＋ ", navigationLevels[i]), i + 1);
+        }
+        void Add(string title, int depth)
+        {
+            var button = new Button { Content = title, Padding = new Thickness(6, 3, 6, 3), Margin = new Thickness(2),
+                ToolTip = "返回此层，清除之后的条件", IsEnabled = depth != navigationLevels.Count || pendingWords.Count > 0 };
+            button.Click += async (_, _) => await ReturnToLevelAsync(depth);
+            NavigationPath.Children.Add(button);
+        }
+    }
+    private async void Clear_Click(object sender, RoutedEventArgs e) { ExtraSearch.Text = ""; await ReturnToLevelAsync(0); }
+    private async void RemoveSelected_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string word }) return;
+        if (pendingWords.Remove(word)) { PopulateKeywords(); await UpdateMatchesAsync(); return; }
+        var depth = navigationLevels.FindIndex(level => level.Contains(word, StringComparer.OrdinalIgnoreCase));
+        if (depth >= 0) await ReturnToLevelAsync(depth);
+    }
     private async void ResetFilters_Click(object sender, RoutedEventArgs e)
     {
-        ready = false; selected.Clear(); KeywordSearch.Text = ""; ExtraSearch.Text = ""; MultiSelect.IsChecked = false;
+        ready = false; selected.Clear(); pendingWords.Clear(); navigationLevels.Clear(); KeywordSearch.Text = ""; ExtraSearch.Text = ""; MultiSelect.IsChecked = false;
         preferences.KeywordLength = 0; preferences.FileFormat = "all"; preferences.KeywordOrder = KeywordOrder.Frequency; preferences.KeywordDescending = true;
         LengthFilter.SelectedValue = 0; SortField.SelectedIndex = 0; SortDirection.SelectedIndex = 1;
         configuringFormat = true; FormatFilter.SelectedValue = "all"; configuringFormat = false;
@@ -220,30 +269,39 @@ public partial class MainWindow : Window
     {
         if (fullIndex is null || FormatFilter.SelectedItem is not FileFormatOption choice) return;
         formatCancellation?.Cancel(); var source = new CancellationTokenSource(); formatCancellation = source;
-        var version = ++formatVersion; var current = fullIndex;
+        var version = ++formatVersion; var current = fullIndex; var scope = selected.ToArray();
+        matchCancellation?.Cancel(); matchingVersion++; matchTimer.Stop();
+        InfiniteKeywordList.IsEnabled = false; EnterNextLevel.IsEnabled = false; OpenEverythingButton.IsEnabled = false;
+        EmptyHint.Text = "正在统计当前范围的关键词…"; EmptyHint.Visibility = Visibility.Visible;
         try
         {
-            var result = await Task.Run(() => FileFormats.Select(current, choice, source.Token));
+            var result = await Task.Run(() => KeywordDrilldown.Select(FileFormats.Select(current, choice, source.Token), scope, source.Token));
             var built = await Task.Run(() => new SearchEngine(result), source.Token);
             if (closing || version != formatVersion) return;
             index = result; engine = built; format = choice;
+            InfiniteKeywordList.IsEnabled = true;
             PopulateKeywords(); await UpdateMatchesAsync();
             if (closing || version != formatVersion) return;
             IndexSummary.Text = $"{(Directory.Exists(result.Root) ? "在线" : "离线缓存")} · {choice.Label} · {result.Files.Count:N0} 个文件 · {result.GroupCount:N0} 个资料组 · 更新于 {result.BuiltUtc.ToLocalTime():MM-dd HH:mm} · 跳过 {result.Issues.Count} 项";
         }
         catch (OperationCanceledException) { }
-        finally { if (formatCancellation == source) formatCancellation = null; source.Dispose(); }
+        catch (Exception ex) { if (!closing && version == formatVersion) { StatusText.Text = "关键词统计未完成：" + ex.Message; } }
+        finally
+        {
+            if (!closing && version == formatVersion) { InfiniteKeywordList.IsEnabled = true; EnterNextLevel.IsEnabled = pendingWords.Count > 0; }
+            if (formatCancellation == source) formatCancellation = null; source.Dispose();
+        }
     }
     private void ExtraSearch_Changed(object sender, TextChangedEventArgs e) { if (!ready) return; matchTimer.Stop(); matchTimer.Start(); }
     private async Task UpdateMatchesAsync()
     {
-        if (engine is null || index is null || closing) return;
+        if (engine is null || index is null || closing || !InfiniteKeywordList.IsEnabled) return;
         matchCancellation?.Cancel();
         var source = new CancellationTokenSource(); matchCancellation = source;
         var version = ++matchingVersion;
         var current = engine;
-        var words = selected.ToArray(); var extra = ExtraSearch.Text;
-        SelectionSummary.Text = words.Length == 0 ? "尚未选择关键词" : "已选：" + string.Join(" ＋ ", words);
+        var words = SearchWords; var extra = ExtraSearch.Text;
+        SelectionSummary.Text = words.Length == 0 ? "点击关键词开始逐层检索" : "当前条件：" + string.Join(" ＋ ", words) + (pendingWords.Count > 0 ? "（含待进入条件）" : "");
         try
         {
             EverythingBridge.BuildQuery(index.Root, words, extra);
@@ -260,12 +318,12 @@ public partial class MainWindow : Window
     private async void OpenEverything_Click(object sender, RoutedEventArgs e) => await ShowEverythingAsync();
     private async Task ShowEverythingAsync()
     {
-        if (index is null) return;
+        if (index is null || !InfiniteKeywordList.IsEnabled) return;
         everything = EverythingBridge.Discover(string.IsNullOrWhiteSpace(preferences.EverythingPath) ? everything?.Path : preferences.EverythingPath);
         UpdateEverythingStatus();
         if (everything is null) { StatusText.Text = "未找到 Everything，请点击“选择 Everything”指定已有程序。"; return; }
         if (!Directory.Exists(index.Root)) { StatusText.Text = "扫描目录或磁盘当前不可用，恢复连接后重试。"; return; }
-        try { pendingEverythingQuery = EverythingBridge.BuildQuery(index.Root, selected, ExtraSearch.Text) + FileFormats.EverythingClause(format); }
+        try { pendingEverythingQuery = EverythingBridge.BuildQuery(index.Root, SearchWords, ExtraSearch.Text) + FileFormats.EverythingClause(format); }
         catch (Exception ex) { StatusText.Text = ex.Message; return; }
         if (dispatchingEverything) { StatusText.Text = "Everything 正在启动，将显示最后一次选择…"; return; }
         dispatchingEverything = true;
@@ -281,8 +339,8 @@ public partial class MainWindow : Window
             StatusText.Text = "已将搜索交给 Everything；可在其中排序、按类型筛选和打开文件。";
             SafeLog($"Everything search dispatched: terms={selected.Count}, extra={ExtraSearch.Text.Length > 0}");
         }
-        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223) { StatusText.Text = "Everything 启动已取消；再次点击关键词可重新尝试自动启动。"; }
-        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 740) { StatusText.Text = "Everything 主程序需要管理员权限。请先手动打开原 Everything，确认一次后再点击关键词。"; }
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223) { StatusText.Text = "Everything 启动已取消；再次点击“在 Everything 查看”可重试。"; }
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 740) { StatusText.Text = "Everything 主程序需要管理员权限。请先手动打开原 Everything，确认一次后再点击“在 Everything 查看”。"; }
         catch (Exception ex) { StatusText.Text = "Everything 搜索未发送：" + ex.Message; SafeLog("Dispatch failed: " + ex.Message); }
         finally { dispatchingEverything = false; pendingEverythingQuery = null; }
     }
@@ -290,7 +348,7 @@ public partial class MainWindow : Window
     {
         EverythingStatus.Text = everything is null ? "未找到 Everything · 请手动选择已有程序" : "已连接 Everything " + everything.Version;
         EverythingStatus.ToolTip = everything?.Path ?? "不安装或修改 Everything";
-        OpenEverythingButton.IsEnabled = everything is not null && index is not null;
+        OpenEverythingButton.IsEnabled = everything is not null && index is not null && InfiniteKeywordList.IsEnabled;
     }
     private void ChooseEverything_Click(object sender, RoutedEventArgs e)
     {
@@ -319,14 +377,14 @@ public partial class MainWindow : Window
             if (contains) { if (!preferences.Rules.ExcludedContains.Contains(word, StringComparer.OrdinalIgnoreCase)) preferences.Rules.ExcludedContains.Add(word); }
             else preferences.Rules.ExcludedWords.Add(word);
         }
-        selected.RemoveWhere(word => !preferences.Rules.Accepts(index?.Keywords.FirstOrDefault(k => k.Word.Equals(word, StringComparison.OrdinalIgnoreCase)) ?? new(word, 0)));
+        pendingWords.RemoveWhere(word => !preferences.Rules.Accepts(index?.Keywords.FirstOrDefault(k => k.Word.Equals(word, StringComparison.OrdinalIgnoreCase)) ?? new(word, 0), CurrentMinimumGroups));
         SavePreferences(); PopulateKeywords(); await UpdateMatchesAsync();
         StatusText.Text = $"已添加 {words.Length} 个屏蔽词；可在忽略与恢复中恢复。";
     }
     private async void Ignore_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not MenuItem item || item.Parent is not ContextMenu menu || menu.PlacementTarget is not Button { Tag: string word }) return;
-        preferences.Ignored.Add(word); selected.Remove(word); SavePreferences(); PopulateKeywords(); await UpdateMatchesAsync();
+        preferences.Ignored.Add(word); pendingWords.Remove(word); SavePreferences(); PopulateKeywords(); await UpdateMatchesAsync();
     }
     private void Ignored_Click(object sender, RoutedEventArgs e)
     {
@@ -349,10 +407,18 @@ public partial class MainWindow : Window
     }
     private async void Rules_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new RulesWindow(preferences.Rules) { Owner = this };
+        var rules = preferences.Rules;
+        var contextual = new KeywordRules { MinimumGroups = CurrentMinimumGroups, MinimumLength = rules.MinimumLength,
+            MaximumLength = rules.MaximumLength, ChineseOnly = rules.ChineseOnly, ExcludedWords = rules.ExcludedWords, ExcludedContains = rules.ExcludedContains };
+        var dialog = new RulesWindow(contextual) { Owner = this };
         if (dialog.ShowDialog() != true || dialog.Result is null) return;
+        if (selected.Count > 0)
+        {
+            preferences.DrilldownMinimumGroups = dialog.Result.MinimumGroups;
+            dialog.Result.MinimumGroups = preferences.Rules.MinimumGroups;
+        }
         preferences.Rules = dialog.Result;
-        selected.RemoveWhere(word => !preferences.Rules.Accepts(index?.Keywords.FirstOrDefault(k => string.Equals(k.Word, word, StringComparison.OrdinalIgnoreCase)) ?? new(word, 0)));
+        pendingWords.RemoveWhere(word => !preferences.Rules.Accepts(index?.Keywords.FirstOrDefault(k => string.Equals(k.Word, word, StringComparison.OrdinalIgnoreCase)) ?? new(word, 0), CurrentMinimumGroups));
         SavePreferences(); PopulateKeywords(); await UpdateMatchesAsync();
         StatusText.Text = "关键词规则已保存，排行已更新；无需重新扫描。";
     }

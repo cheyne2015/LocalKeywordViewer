@@ -48,6 +48,35 @@ var tokenizerFixture = new KeywordTokenizer(resources);
 var noise = tokenizerFixture.Extract("2026年10月12日 www.example.com 389929.xyz 12345678901234567890123456789012.jpg", true);
 Assert(noise.Count == 0, "Date/url/hash/extension noise");
 Assert(tokenizerFixture.Extract("OpenAI_Research 报告.mp4", true).Contains("openai_research"), "English name preservation"); passed.Add("Chinese segmentation, English names and noise suppression");
+// Conditional statistics must use matching files, including inherited folders, not their siblings.
+var scopedFiles = new List<FileEntry>();
+void ScopeFile(string group, string relative, string name, params string[] words) => scopedFiles.Add(
+    new(Path.Combine(fixture, relative, name), relative, name, Path.GetExtension(name), 1, DateTime.UtcNow, group, words.ToList()));
+ScopeFile("one", @"组一\北京 旅行 摄影 学习", "001.txt", "北京", "旅行", "摄影", "学习");
+ScopeFile("one", @"组一\北京 旅行 摄影 学习", "002.txt", "北京", "旅行", "摄影", "学习");
+ScopeFile("one", @"组一\无关资料", "同组干扰.txt", "干扰");
+ScopeFile("two", @"组二\北京 旅行 摄影 学习", "003.txt", "北京", "旅行", "摄影", "学习");
+ScopeFile("two", @"组二\无关资料", "同组干扰.txt", "干扰");
+ScopeFile("three", @"组三\北京 音乐", "004.mp3", "北京", "音乐");
+var scopeFixture = new FileIndex(fixture, DateTime.UtcNow, scopedFiles, [], [], 3);
+var firstScope = KeywordDrilldown.Select(scopeFixture, ["北京"]);
+Assert(firstScope.Files.Count == 4 && firstScope.GroupCount == 3, "Drilldown inherits folder names and excludes sibling files");
+Assert(firstScope.Keywords.Single(k => k.Word == "旅行").Groups == 2 && firstScope.Keywords.All(k => k.Word is not "北京" and not "干扰"), "Conditional group deduplication and committed-word exclusion");
+var nextScope = KeywordDrilldown.Select(scopeFixture, ["北京", "旅行"]);
+Assert(nextScope.Files.Count == 3 && nextScope.Keywords.Single(k => k.Word == "摄影").Groups == 2, "Second-level AND filtering");
+Assert(KeywordDrilldown.Select(scopeFixture, ["北京", "旅行", "摄影", "学习"]).Keywords.Count == 0, "Arbitrary depth reaches a valid leaf");
+Assert(KeywordDrilldown.Select(scopeFixture, ["北京", "音乐"]).Files.Count == 1, "Leaf retains matching file even below keyword frequency threshold");
+Assert(KeywordDrilldown.Select(scopeFixture, ["不存在"]).Files.Count == 0, "Zero-match conditional scope");
+Assert(ReferenceEquals(scopeFixture, KeywordDrilldown.Select(scopeFixture, [])), "Home restores the original full index");
+Assert(KeywordDrilldown.Select(FileFormats.Select(scopeFixture, new("ext:.mp3", ".mp3", [".mp3"]), default), ["北京"]).Files.Count == 1, "Format combines with current scope");
+Assert(KeywordDrilldown.Select(scopeFixture, ["北京", "ｓｔｕｄｙ"]).Files.Count == 0, "Conditional matching uses normalized substring semantics");
+var scopedPreferences = new ViewerPreferences { Rules = new() { MinimumGroups = 10 } };
+Assert(KeywordView.Apply(firstScope.Keywords, scopedPreferences, "").Count == 0 && KeywordView.Apply(firstScope.Keywords, scopedPreferences, "", 2).Count > 0, "Independent lower-level frequency without changing home threshold");
+using (var cancelledScope = new CancellationTokenSource())
+{
+    cancelledScope.Cancel(); Expect<OperationCanceledException>(() => KeywordDrilldown.Select(scopeFixture, ["北京"], cancelledScope.Token));
+}
+passed.Add("hierarchical matching-file statistics, sibling isolation, group deduplication, arbitrary depth, format, leaf, return and cancellation");
 var fixtureEngine = new SearchEngine(indexFixture);
 var formatOptions = FileFormats.Options(indexFixture);
 Assert(!formatOptions.Any(o => o.Key == "video") && formatOptions.Any(o => o.Key == "image"), "Formats list only actual categories");
