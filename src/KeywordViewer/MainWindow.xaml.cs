@@ -185,7 +185,7 @@ public partial class MainWindow : Window
         keywordBatches.Clear();
         EnsureLoadedPage(Math.Max(keywordPage, Math.Max(1, wasLoaded)));
         UpdatePageSummary();
-        KeywordSummary.ToolTip = $"原始高频词 {index.Keywords.Count:N0} 个；当前规则：至少 {CurrentMinimumGroups} 个资料组，词长 {preferences.Rules.MinimumLength}～{preferences.Rules.MaximumLength}，{(preferences.Rules.ChineseOnly ? "仅中文" : "含英文")}。右键关键词可忽略。";
+        KeywordSummary.ToolTip = $"原始高频词 {index.Keywords.Count:N0} 个；当前规则：至少 {CurrentMinimumGroups} 个资料组，词长 {preferences.Rules.MinimumLength}～{preferences.Rules.MaximumLength}，{(preferences.Rules.ChineseOnly ? "仅中文" : preferences.Rules.IncludeNumbers ? $"含英文及最多 {preferences.Rules.MaximumNumericLength} 位数字" : "含英文，排除纯数字")}。右键关键词可忽略。";
         EmptyHint.Visibility = available == 0 ? Visibility.Visible : Visibility.Collapsed;
         EmptyHint.Text = selected.Count > 0 ? "没有更多符合筛选规则的关键词；可返回上层或调整规则" : filter.Length > 0 ? "未找到符合规则的关键词，可调整关键词规则" : "没有符合当前规则的关键词，可降低资料组门槛";
         SelectionSummary.Text = SearchWords.Length == 0 ? "点击关键词开始逐层检索" : "当前条件：" + string.Join(" ＋ ", SearchWords);
@@ -409,7 +409,7 @@ public partial class MainWindow : Window
     {
         var rules = preferences.Rules;
         var contextual = new KeywordRules { MinimumGroups = CurrentMinimumGroups, MinimumLength = rules.MinimumLength,
-            MaximumLength = rules.MaximumLength, ChineseOnly = rules.ChineseOnly, ExcludedWords = rules.ExcludedWords, ExcludedContains = rules.ExcludedContains };
+            MaximumLength = rules.MaximumLength, ChineseOnly = rules.ChineseOnly, IncludeNumbers = rules.IncludeNumbers, MaximumNumericLength = rules.MaximumNumericLength, ExcludedWords = rules.ExcludedWords, ExcludedContains = rules.ExcludedContains };
         var dialog = new RulesWindow(contextual) { Owner = this };
         if (dialog.ShowDialog() != true || dialog.Result is null) return;
         if (selected.Count > 0)

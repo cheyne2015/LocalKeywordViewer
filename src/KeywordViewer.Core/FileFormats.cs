@@ -28,7 +28,8 @@ public static class FileFormats
     }
     public static FileIndex EnsureKeywords(FileIndex index, string resources, CancellationToken token)
     {
-        if (index.Files.All(f => f.Keywords is not null)) return index;
+        var rebuild = index.NameTokenVersion != KeywordTokenizer.CurrentVersion;
+        if (!rebuild && index.Files.All(f => f.Keywords is not null)) return index;
         var tokenizer = new KeywordTokenizer(resources);
         var directories = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
         var names = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
@@ -36,7 +37,7 @@ public static class FileFormats
         foreach (var file in index.Files)
         {
             token.ThrowIfCancellationRequested();
-            if (file.Keywords is not null) { files.Add(file); continue; }
+            if (!rebuild && file.Keywords is not null) { files.Add(file); continue; }
             if (!directories.TryGetValue(file.RelativeDirectory, out var inherited))
             {
                 inherited = new(StringComparer.OrdinalIgnoreCase);
@@ -47,12 +48,15 @@ public static class FileFormats
             var words = new HashSet<string>(inherited, StringComparer.OrdinalIgnoreCase); words.UnionWith(own);
             files.Add(file with { Keywords = words.ToList() });
         }
-        return index with { Files = files };
+        return Recount(index with { NameTokenVersion = KeywordTokenizer.CurrentVersion }, files, token);
     }
     public static FileIndex Select(FileIndex index, FileFormatOption option, CancellationToken token)
     {
         if (option.Key == "all") return index;
-        var files = index.Files.Where(option.Accepts).ToList();
+        return Recount(index, index.Files.Where(option.Accepts).ToList(), token);
+    }
+    private static FileIndex Recount(FileIndex index, List<FileEntry> files, CancellationToken token)
+    {
         var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var groups = files.GroupBy(f => f.GroupKey).ToList();
         foreach (var group in groups)

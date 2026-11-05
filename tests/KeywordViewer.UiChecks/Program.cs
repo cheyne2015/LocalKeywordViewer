@@ -130,7 +130,7 @@ internal static class Program
             Assert(!File.ReadAllText(Path.Combine(store.BaseDirectory, "runtime.log")).Contains("Everything search dispatched"), "Keyword exploration never launches Everything");
             var stressRoot = Path.Combine(fixture, "stress"); Directory.CreateDirectory(stressRoot);
             var stressWords = Enumerable.Range(0, 6000).Select(i => new KeywordCount((i < 3000 ? "例" : "资料") + (char)(0x4e00 + i / 100) + (char)(0x4e00 + i % 100), 6002 - i)).Concat(new[] { new KeywordCount("北京", 4), new KeywordCount("旅行", 4) }).ToList();
-            var sampleIndex = new FileIndex(stressRoot, DateTime.UtcNow, [], stressWords, [], 6002);
+            var sampleIndex = new FileIndex(stressRoot, DateTime.UtcNow, [], stressWords, [], 6002) { NameTokenVersion = KeywordTokenizer.CurrentVersion };
             var samplePrefs = store.LoadPreferences(); samplePrefs.Root = sampleIndex.Root; samplePrefs.Rules.MinimumGroups = 2; samplePrefs.Ignored.Clear(); samplePrefs.KeywordLength = 0;
             var stressProfile = manager.Add("压力样本", sampleIndex.Root, samplePrefs); store = manager.StoreFor(stressProfile); store.SaveIndex(sampleIndex);
             var offlineRoot = Path.Combine(fixture, "not-attached");
@@ -189,8 +189,39 @@ internal static class Program
             Wait(() => ((TextBlock)largePanel.FindName("StatusText")).Text.Contains("目录离线") && ((TextBlock)largePanel.FindName("IndexSummary")).Text.Contains("离线缓存"));
             Assert(WordButtons(largePanel).Any(), "Offline library remains browsable from cache");
             if (dispatcherError is not null) throw dispatcherError;
+            var mixedRoot = Path.Combine(fixture, "mixed-keyword-library"); Directory.CreateDirectory(mixedRoot);
+            var mixedProfile = manager.Add("Mixed keyword fixture", mixedRoot, new ViewerPreferences { Rules = new() { MinimumGroups = 2 } });
+            var mixedStore = manager.StoreFor(mixedProfile);
+            var legacyMixed = new FileIndex(mixedRoot, DateTime.UtcNow, Enumerable.Range(1, 2).Select(i =>
+                new FileEntry(Path.Combine(mixedRoot, $"group{i}", "2026", "high", "01", "a1", "样本.txt"), $@"group{i}\2026\high\01\a1", "样本.txt", ".txt", 1, DateTime.UtcNow, $"group{i}", [])).ToList(), [], [], 2);
+            mixedStore.SaveIndex(legacyMixed);
+            var mixedPanel = new KeywordViewer.MainWindow(rootStore, mixedRoot); ConfigureTestWindow(mixedPanel); mixedPanel.Show();
+            Wait(() => ((TextBlock)mixedPanel.FindName("StatusText")).Text.StartsWith("已加载缓存") && WordButtons(mixedPanel).Any());
+            Modal(mixedPanel, "关键词规则", dialog => {
+                ((CheckBox)dialog.FindName("ChineseOnlyBox")).IsChecked = false;
+                ((CheckBox)dialog.FindName("IncludeNumbersBox")).IsChecked = true;
+                ((TextBox)dialog.FindName("MaximumNumericLengthBox")).Text = "6";
+                Click(dialog, "保存规则");
+            });
+            Wait(() => new[] { "2026", "high", "01", "a1" }.All(word => WordButtons(mixedPanel).Any(b => Equals(b.Tag, word))));
+            Assert(mixedStore.LoadIndex(mixedRoot)!.NameTokenVersion == KeywordTokenizer.CurrentVersion, "Loaded legacy populated cache is upgraded and saved");
+            ((TextBox)mixedPanel.FindName("KeywordSearch")).Text = "high";
+            Wait(() => WordButtons(mixedPanel).Count() == 1);
+            ((TextBox)mixedPanel.FindName("KeywordSearch")).Text = "";
+            Wait(() => WordButtons(mixedPanel).Count() > 1);
+            WordButtons(mixedPanel).Single(b => Equals(b.Tag, "2026")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Wait(() => WordButtons(mixedPanel).Any(b => Equals(b.Tag, "01")) && WordButtons(mixedPanel).All(b => !Equals(b.Tag, "2026")));
+            Modal(mixedPanel, "关键词规则", dialog => {
+                Assert(((TextBox)dialog.FindName("MaximumNumericLengthBox")).Text == "6", "Nested rules retain numeric settings");
+                ((CheckBox)dialog.FindName("IncludeNumbersBox")).IsChecked = false;
+                Click(dialog, "保存规则");
+            });
+            Wait(() => WordButtons(mixedPanel).All(b => !Equals(b.Tag, "01")));
+            Assert(WordButtons(mixedPanel).Any(b => Equals(b.Tag, "high")) && WordButtons(mixedPanel).Any(b => Equals(b.Tag, "a1")), "Hiding pure numbers preserves English and mixed labels");
+            Assert(!mixedStore.LoadPreferences().Rules.IncludeNumbers && !mixedStore.LoadPreferences().Rules.ChineseOnly, "Numeric and language preferences saved");
+            mixedPanel.Close();
             largePanel.Close();
-            var passed = new { Passed = true, Cases = new[] { "isolated WPF cache load", "wrapping keyword layout", "invalid rule input", "frequency rule save and reopen", "contains exclusion save", "context-menu ignore", "restore ignored words", "restore rule-excluded words", "keyword search", "chip X block and unified restoration", "default waterfall without mode checkbox", "waterfall scroll appends 12 pages with virtualized controls", "sorting, length filter, persistence and branding", "library switch and format file count", "reset filters and fixed selected words", "offline cache browsing", "hierarchical routed clicks, inherited file scope, leaf and breadcrumb return", "independent child threshold and staged AND multi-selection", "no automatic Everything launch during keyword exploration" }, Store = store.BaseDirectory };
+            var passed = new { Passed = true, Cases = new[] { "isolated WPF cache load", "wrapping keyword layout", "invalid rule input", "frequency rule save and reopen", "contains exclusion save", "context-menu ignore", "restore ignored words", "restore rule-excluded words", "keyword search", "chip X block and unified restoration", "default waterfall without mode checkbox", "waterfall scroll appends 12 pages with virtualized controls", "sorting, length filter, persistence and branding", "library switch and format file count", "reset filters and fixed selected words", "offline cache browsing", "hierarchical routed clicks, inherited file scope, leaf and breadcrumb return", "independent child threshold and staged AND multi-selection", "no automatic Everything launch during keyword exploration", "legacy mixed-token cache upgrade, language and numeric rule controls, search and hierarchical filtering" }, Store = store.BaseDirectory };
             File.WriteAllText(Path.Combine(verification, "ui-checks.json"), JsonSerializer.Serialize(passed, new JsonSerializerOptions { WriteIndented = true }));
             Console.WriteLine(JsonSerializer.Serialize(passed));
             panel.Close(); app.Shutdown(); return 0;
