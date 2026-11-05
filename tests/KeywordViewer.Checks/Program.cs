@@ -77,6 +77,23 @@ using (var cancelledScope = new CancellationTokenSource())
     cancelledScope.Cancel(); Expect<OperationCanceledException>(() => KeywordDrilldown.Select(scopeFixture, ["北京"], cancelledScope.Token));
 }
 passed.Add("hierarchical matching-file statistics, sibling isolation, group deduplication, arbitrary depth, format, leaf, return and cancellation");
+var mixedTokens = tokenizerFixture.Extract("2026/high/01/a1 high_quality", false);
+Assert(new[] { "2026", "high", "01", "a1", "high_quality" }.All(mixedTokens.Contains), "Standalone years, leading-zero numbers, English words and alphanumeric labels are indexed");
+var missingNumericCache = new FileIndex(fixture, DateTime.UtcNow,
+    Enumerable.Range(1, 2).Select(i => new FileEntry(Path.Combine(fixture, $"mixed-{i}", "2026 high 01 a1.txt"), $"mixed-{i}", "2026 high 01 a1.txt", ".txt", 1, DateTime.UtcNow, $"mixed-{i}", [])).ToList(), [], [], 2);
+var restoredNumericCache = FileFormats.EnsureKeywords(missingNumericCache, resources, default);
+Assert(new[] { "2026", "high", "01", "a1" }.All(word => restoredNumericCache.Keywords.Any(k => k.Word == word && k.Groups == 2)), "Populated legacy token caches rebuild mixed-word statistics from names without reading files");
+Assert(ReferenceEquals(restoredNumericCache, FileFormats.EnsureKeywords(restoredNumericCache, resources, default)), "Current name-token cache upgrade is idempotent");
+var numericRules = new KeywordRules { ChineseOnly = false, MinimumGroups = 2 };
+Assert(numericRules.Accepts(new("2026", 2)) && numericRules.Accepts(new("01", 2)) && numericRules.Accepts(new("a1", 2)) && numericRules.Accepts(new("high", 2)) && !numericRules.Accepts(new("1234567", 2)), "Mixed-language rules retain useful short numbers and exclude long numeric IDs by default");
+numericRules.IncludeNumbers = false;
+Assert(!numericRules.Accepts(new("01", 2)) && numericRules.Accepts(new("a1", 2)), "Numeric toggle excludes only pure numbers");
+numericRules.IncludeNumbers = true; numericRules.MaximumNumericLength = 8;
+Assert(numericRules.Accepts(new("12345678", 2)), "Numeric length is configurable");
+numericRules.ChineseOnly = true;
+Assert(!numericRules.Accepts(new("2026", 2)) && !numericRules.Accepts(new("high", 2)) && numericRules.Accepts(new("北京", 2)), "Chinese-only mode remains available");
+Expect<ArgumentException>(() => new KeywordRules { MaximumNumericLength = 16 }.Validate());
+passed.Add("numeric, English and alphanumeric extraction, configurable suppression and populated-cache migration");
 var fixtureEngine = new SearchEngine(indexFixture);
 var formatOptions = FileFormats.Options(indexFixture);
 Assert(!formatOptions.Any(o => o.Key == "video") && formatOptions.Any(o => o.Key == "image"), "Formats list only actual categories");

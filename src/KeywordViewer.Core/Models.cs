@@ -13,7 +13,11 @@ public sealed record KeywordCount(string Word, int Groups);
 public sealed record ScanIssue(string Path, string Reason);
 public sealed record ScanProgress(int Files, int Directories, int Skipped);
 public sealed record FileIndex(string Root, DateTime BuiltUtc, List<FileEntry> Files,
-    List<KeywordCount> Keywords, List<ScanIssue> Issues, int GroupCount, int Version = 2);
+    List<KeywordCount> Keywords, List<ScanIssue> Issues, int GroupCount, int Version = 2)
+{
+    // Missing in old JSON caches, so populated legacy token lists are also upgraded.
+    public int NameTokenVersion { get; init; }
+}
 public sealed class ViewerPreferences
 {
     public string Root { get; set; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");

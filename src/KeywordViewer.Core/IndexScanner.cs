@@ -80,7 +80,7 @@ public sealed class IndexScanner(string resources)
         var keywords = counts.Where(x => x.Value >= 2).Select(x => new KeywordCount(x.Key, x.Value))
             .OrderByDescending(x => x.Groups).ThenBy(x => x.Word, StringComparer.OrdinalIgnoreCase).ToList();
         progress?.Report(new(files.Count, dirs, issues.Count));
-        return new(root, DateTime.UtcNow, files, keywords, issues, groups.Count);
+        return new(root, DateTime.UtcNow, files, keywords, issues, groups.Count) { NameTokenVersion = KeywordTokenizer.CurrentVersion };
 
         HashSet<string> Tokens(string name, bool isFile)
         {
