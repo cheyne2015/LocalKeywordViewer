@@ -200,6 +200,7 @@ internal static class Program
             Modal(mixedPanel, "关键词规则", dialog => {
                 ((CheckBox)dialog.FindName("ChineseOnlyBox")).IsChecked = false;
                 ((CheckBox)dialog.FindName("IncludeNumbersBox")).IsChecked = true;
+                Assert(dialog.FindName("MinimumNumericLengthBox") is TextBox, "Numeric rules expose a minimum and maximum length range");
                 ((TextBox)dialog.FindName("MaximumNumericLengthBox")).Text = "6";
                 Click(dialog, "保存规则");
             });
@@ -219,9 +220,27 @@ internal static class Program
             Wait(() => WordButtons(mixedPanel).All(b => !Equals(b.Tag, "01")));
             Assert(WordButtons(mixedPanel).Any(b => Equals(b.Tag, "high")) && WordButtons(mixedPanel).Any(b => Equals(b.Tag, "a1")), "Hiding pure numbers preserves English and mixed labels");
             Assert(!mixedStore.LoadPreferences().Rules.IncludeNumbers && !mixedStore.LoadPreferences().Rules.ChineseOnly, "Numeric and language preferences saved");
+            Click(mixedPanel, "全部资料");
+            Wait(() => WordButtons(mixedPanel).Any(b => Equals(b.Tag, "high")));
+            Modal(mixedPanel, "关键词规则", dialog => {
+                ((CheckBox)dialog.FindName("IncludeNumbersBox")).IsChecked = true;
+                ((TextBox)dialog.FindName("MinimumNumericLengthBox")).Text = "7";
+                ((TextBox)dialog.FindName("MaximumNumericLengthBox")).Text = "6";
+                Click(dialog, "保存规则");
+                Assert(((TextBlock)dialog.FindName("ErrorText")).Text.Contains("最短位数"), "Reversed numeric range is rejected");
+                ((TextBox)dialog.FindName("MinimumNumericLengthBox")).Text = "4";
+                Click(dialog, "保存规则");
+            });
+            Wait(() => WordButtons(mixedPanel).Any(b => Equals(b.Tag, "2026")) && WordButtons(mixedPanel).All(b => !Equals(b.Tag, "01")));
+            Assert(WordButtons(mixedPanel).Any(b => Equals(b.Tag, "high")) && WordButtons(mixedPanel).Any(b => Equals(b.Tag, "a1")), "Numeric range preserves nonnumeric words");
+            Assert(mixedStore.LoadPreferences().Rules.MinimumNumericLength == 4 && mixedStore.LoadPreferences().Rules.MaximumNumericLength == 6, "Numeric range persists");
+            Modal(mixedPanel, "关键词规则", dialog => {
+                Assert(((TextBox)dialog.FindName("MinimumNumericLengthBox")).Text == "4" && ((TextBox)dialog.FindName("MaximumNumericLengthBox")).Text == "6", "Reopened rules retain both numeric bounds");
+                dialog.Close();
+            });
             mixedPanel.Close();
             largePanel.Close();
-            var passed = new { Passed = true, Cases = new[] { "isolated WPF cache load", "wrapping keyword layout", "invalid rule input", "frequency rule save and reopen", "contains exclusion save", "context-menu ignore", "restore ignored words", "restore rule-excluded words", "keyword search", "chip X block and unified restoration", "default waterfall without mode checkbox", "waterfall scroll appends 12 pages with virtualized controls", "sorting, length filter, persistence and branding", "library switch and format file count", "reset filters and fixed selected words", "offline cache browsing", "hierarchical routed clicks, inherited file scope, leaf and breadcrumb return", "independent child threshold and staged AND multi-selection", "no automatic Everything launch during keyword exploration", "legacy mixed-token cache upgrade, language and numeric rule controls, search and hierarchical filtering" }, Store = store.BaseDirectory };
+            var passed = new { Passed = true, Cases = new[] { "isolated WPF cache load", "wrapping keyword layout", "invalid rule input", "frequency rule save and reopen", "contains exclusion save", "context-menu ignore", "restore ignored words", "restore rule-excluded words", "keyword search", "chip X block and unified restoration", "default waterfall without mode checkbox", "waterfall scroll appends 12 pages with virtualized controls", "sorting, length filter, persistence and branding", "library switch and format file count", "reset filters and fixed selected words", "offline cache browsing", "hierarchical routed clicks, inherited file scope, leaf and breadcrumb return", "independent child threshold and staged AND multi-selection", "no automatic Everything launch during keyword exploration", "legacy mixed-token cache upgrade, language and numeric rule controls, search and hierarchical filtering", "numeric minimum-maximum range, invalid input, persistence and reopening" }, Store = store.BaseDirectory };
             File.WriteAllText(Path.Combine(verification, "ui-checks.json"), JsonSerializer.Serialize(passed, new JsonSerializerOptions { WriteIndented = true }));
             Console.WriteLine(JsonSerializer.Serialize(passed));
             panel.Close(); app.Shutdown(); return 0;

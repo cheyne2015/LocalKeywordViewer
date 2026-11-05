@@ -93,6 +93,13 @@ Assert(numericRules.Accepts(new("12345678", 2)), "Numeric length is configurable
 numericRules.ChineseOnly = true;
 Assert(!numericRules.Accepts(new("2026", 2)) && !numericRules.Accepts(new("high", 2)) && numericRules.Accepts(new("北京", 2)), "Chinese-only mode remains available");
 Expect<ArgumentException>(() => new KeywordRules { MaximumNumericLength = 16 }.Validate());
+numericRules.ChineseOnly = false; numericRules.MinimumNumericLength = 4; numericRules.MaximumNumericLength = 6;
+Assert(!numericRules.Accepts(new("01", 2)) && numericRules.Accepts(new("2026", 2)) && numericRules.Accepts(new("123456", 2)) && !numericRules.Accepts(new("1234567", 2)), "Numeric minimum and maximum have inclusive boundaries");
+Assert(numericRules.Accepts(new("a1", 2)) && numericRules.Accepts(new("high", 2)), "Numeric length range does not affect English or mixed words");
+Expect<ArgumentException>(() => new KeywordRules { MinimumNumericLength = 7, MaximumNumericLength = 6 }.Validate());
+Expect<ArgumentException>(() => new KeywordRules { MinimumNumericLength = 1 }.Validate());
+var legacyNumericRules = JsonSerializer.Deserialize<KeywordRules>("{\"MaximumNumericLength\":8}")!;
+Assert(legacyNumericRules.MinimumNumericLength == 2 && legacyNumericRules.MaximumNumericLength == 8, "Legacy numeric settings retain their maximum and default minimum");
 passed.Add("numeric, English and alphanumeric extraction, configurable suppression and populated-cache migration");
 var fixtureEngine = new SearchEngine(indexFixture);
 var formatOptions = FileFormats.Options(indexFixture);

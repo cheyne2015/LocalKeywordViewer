@@ -8,6 +8,7 @@ public sealed class KeywordRules
     public int MaximumLength { get; set; } = 8;
     public bool ChineseOnly { get; set; } = true;
     public bool IncludeNumbers { get; set; } = true;
+    public int MinimumNumericLength { get; set; } = 2;
     public int MaximumNumericLength { get; set; } = 6;
     public HashSet<string> ExcludedWords { get; set; } = new(StringComparer.OrdinalIgnoreCase)
     { "最新", "合集", "全集", "高清", "超清", "视频", "图片", "精品", "推荐", "无水印", "去重", "版本", "极品", "超级", "顶级", "高质", "质量", "全新", "新品", "精选", "超多", "大量", "稀有", "重磅", "独家", "完整", "更新", "系列", "精彩", "各种", "一个", "两个", "全部" };
@@ -18,14 +19,14 @@ public sealed class KeywordRules
     {
         return keyword.Groups >= (minimumGroups ?? MinimumGroups) && keyword.Word.Length >= MinimumLength && keyword.Word.Length <= MaximumLength
             && (!ChineseOnly || Chinese.IsMatch(keyword.Word))
-            && (!Numeric.IsMatch(keyword.Word) || (IncludeNumbers && keyword.Word.Length <= MaximumNumericLength))
+            && (!Numeric.IsMatch(keyword.Word) || (IncludeNumbers && keyword.Word.Length >= MinimumNumericLength && keyword.Word.Length <= MaximumNumericLength))
             && !ExcludedWords.Contains(keyword.Word)
             && !ExcludedContains.Any(fragment => !string.IsNullOrWhiteSpace(fragment) && keyword.Word.Contains(fragment, StringComparison.OrdinalIgnoreCase));
     }
     public void Validate()
     {
         if (MinimumGroups < 2 || MinimumGroups > 1000000) throw new ArgumentException("资料组数量门槛需要在 2～1,000,000 之间。");
-        if (MaximumNumericLength is < 2 or > 15) throw new ArgumentException("纯数字长度上限需要在 2～15 位之间。");
+        if (MinimumNumericLength < 2 || MaximumNumericLength < MinimumNumericLength || MaximumNumericLength > 15) throw new ArgumentException("纯数字位数需满足：2 ≤ 最短位数 ≤ 最长位数 ≤ 15。");
         if (MinimumLength < 2 || MaximumLength < MinimumLength || MaximumLength > 100) throw new ArgumentException("词长需满足：2 ≤ 最短长度 ≤ 最长长度 ≤ 100。");
     }
 }
