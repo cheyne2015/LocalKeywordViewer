@@ -6,7 +6,8 @@ namespace KeywordViewer.Core;
 
 public sealed class KeywordTokenizer
 {
-    public const int CurrentVersion = 2;
+    // Version 3 also retains single-group statistics for explicit keyword searches.
+    public const int CurrentVersion = 3;
     private readonly JiebaSegmenter segmenter;
     private readonly HashSet<string> stopWords;
     private static readonly Regex Noise = new(@"https?://\S+|www\.\S+|(?<![A-Za-z0-9])[A-Za-z0-9][A-Za-z0-9.-]*\.(?:xyz|com|net|org|cn|top|cc|vip|site|info|me|tv|io)\b|\b[0-9a-fA-F]{16,}\b|\d{4}年\d{1,2}月(?:\d{1,2}日)?|\d{4}[-_.]\d{1,2}[-_.]\d{1,2}|\d{1,2}[月日]", RegexOptions.Compiled | RegexOptions.IgnoreCase);

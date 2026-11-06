@@ -77,7 +77,7 @@ public sealed class IndexScanner(string resources)
             cancellation.ThrowIfCancellationRequested();
             foreach (var word in words) counts[word] = counts.GetValueOrDefault(word) + 1;
         }
-        var keywords = counts.Where(x => x.Value >= 2).Select(x => new KeywordCount(x.Key, x.Value))
+        var keywords = counts.Select(x => new KeywordCount(x.Key, x.Value))
             .OrderByDescending(x => x.Groups).ThenBy(x => x.Word, StringComparer.OrdinalIgnoreCase).ToList();
         progress?.Report(new(files.Count, dirs, issues.Count));
         return new(root, DateTime.UtcNow, files, keywords, issues, groups.Count) { NameTokenVersion = KeywordTokenizer.CurrentVersion };
