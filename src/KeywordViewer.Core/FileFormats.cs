@@ -66,7 +66,7 @@ public static class FileFormats
             foreach (var file in group) words.UnionWith(file.Keywords ?? throw new InvalidOperationException("名称索引尚未升级。"));
             foreach (var word in words) counts[word] = counts.GetValueOrDefault(word) + 1;
         }
-        return index with { Files = files, GroupCount = groups.Count, Keywords = counts.Where(k => k.Value >= 2).Select(k => new KeywordCount(k.Key, k.Value)).OrderByDescending(k => k.Groups).ThenBy(k => k.Word).ToList() };
+        return index with { Files = files, GroupCount = groups.Count, Keywords = counts.Select(k => new KeywordCount(k.Key, k.Value)).OrderByDescending(k => k.Groups).ThenBy(k => k.Word).ToList() };
     }
     public static string EverythingClause(FileFormatOption option)
     {

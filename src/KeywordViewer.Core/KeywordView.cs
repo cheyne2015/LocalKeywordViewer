@@ -5,7 +5,7 @@ public static class KeywordView
     public static List<int> AvailableLengths(IEnumerable<KeywordCount> words, ViewerPreferences preferences, string search, int? minimumGroups = null) =>
         Filter(words, preferences, search, minimumGroups).Select(k => k.Word.Length).Distinct().Order().ToList();
     private static IEnumerable<KeywordCount> Filter(IEnumerable<KeywordCount> words, ViewerPreferences preferences, string search, int? minimumGroups = null) =>
-        words.Where(k => preferences.Rules.Accepts(k, minimumGroups) && !preferences.Ignored.Contains(k.Word)
+        words.Where(k => preferences.Rules.Accepts(k, string.IsNullOrWhiteSpace(search) ? minimumGroups : 1) && !preferences.Ignored.Contains(k.Word)
             && k.Word.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase));
     public static List<KeywordCount> Apply(IEnumerable<KeywordCount> words, ViewerPreferences preferences, string search, int? minimumGroups = null)
     {

@@ -31,7 +31,7 @@ public static class KeywordDrilldown
         }
         token.ThrowIfCancellationRequested();
         return index with { Files = files, GroupCount = groups.Count,
-            Keywords = counts.Where(k => k.Value >= 2 && !words.Contains(k.Key, StringComparer.OrdinalIgnoreCase))
+            Keywords = counts.Where(k => !words.Contains(k.Key, StringComparer.OrdinalIgnoreCase))
                 .Select(k => new KeywordCount(k.Key, k.Value)).OrderByDescending(k => k.Groups).ThenBy(k => k.Word).ToList() };
     }
 }

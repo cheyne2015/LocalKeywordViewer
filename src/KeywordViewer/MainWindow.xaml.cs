@@ -146,7 +146,7 @@ public partial class MainWindow : Window
         var pages = Math.Max(1, (filteredKeywords.Count + 99) / 100);
         PreviousPage.IsEnabled = keywordPage > 1; NextPage.IsEnabled = keywordPage < pages;
         PageSummary.Text = $" {keywordPage} / {pages} 页 · 已加载 {keywordBatches.Count} 页 ";
-        KeywordSummary.Text = $"已加载 {Math.Min(keywordBatches.Count * 100, filteredKeywords.Count):N0} / {filteredKeywords.Count:N0} 个 · 门槛 {CurrentMinimumGroups} 组";
+        KeywordSummary.Text = $"已加载 {Math.Min(keywordBatches.Count * 100, filteredKeywords.Count):N0} / {filteredKeywords.Count:N0} 个 · {(string.IsNullOrWhiteSpace(KeywordSearch.Text) ? $"门槛 {CurrentMinimumGroups} 组" : "搜索含 1 组词")}";
     }
     private void Infinite_ScrollChanged(object sender, ScrollChangedEventArgs e)
     {
@@ -185,7 +185,7 @@ public partial class MainWindow : Window
         keywordBatches.Clear();
         EnsureLoadedPage(Math.Max(keywordPage, Math.Max(1, wasLoaded)));
         UpdatePageSummary();
-        KeywordSummary.ToolTip = $"原始高频词 {index.Keywords.Count:N0} 个；当前规则：至少 {CurrentMinimumGroups} 个资料组，词长 {preferences.Rules.MinimumLength}～{preferences.Rules.MaximumLength}，{(preferences.Rules.ChineseOnly ? "仅中文" : preferences.Rules.IncludeNumbers ? $"含英文及 {preferences.Rules.MinimumNumericLength}～{preferences.Rules.MaximumNumericLength} 位数字" : "含英文，排除纯数字")}。右键关键词可忽略。";
+        KeywordSummary.ToolTip = $"索引词 {index.Keywords.Count:N0} 个；当前规则：至少 {(filter.Length > 0 ? 1 : CurrentMinimumGroups)} 个资料组，词长 {preferences.Rules.MinimumLength}～{preferences.Rules.MaximumLength}，{(preferences.Rules.ChineseOnly ? "仅中文" : preferences.Rules.IncludeNumbers ? $"含英文及 {preferences.Rules.MinimumNumericLength}～{preferences.Rules.MaximumNumericLength} 位数字" : "含英文，排除纯数字")}。主动搜索包含仅 1 组的词；屏蔽及其他筛选仍生效。右键关键词可忽略。";
         EmptyHint.Visibility = available == 0 ? Visibility.Visible : Visibility.Collapsed;
         EmptyHint.Text = selected.Count > 0 ? "没有更多符合筛选规则的关键词；可返回上层或调整规则" : filter.Length > 0 ? "未找到符合规则的关键词，可调整关键词规则" : "没有符合当前规则的关键词，可降低资料组门槛";
         SelectionSummary.Text = SearchWords.Length == 0 ? "点击关键词开始逐层检索" : "当前条件：" + string.Join(" ＋ ", SearchWords);
